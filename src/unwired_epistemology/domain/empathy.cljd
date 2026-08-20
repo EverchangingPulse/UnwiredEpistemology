@@ -1,0 +1,18 @@
+(ns unwired-epistemology.domain.empathy)
+
+(def opposing-values #{#{1 7} #{2 6}})
+
+(defn opposing? [left right]
+  (contains? opposing-values #{left right}))
+
+(defn pairings [positions]
+  (->> (for [[left-id left-value] positions
+             [right-id right-value] positions
+             :when (and (neg? (compare (str left-id) (str right-id)))
+                        (opposing? left-value right-value))]
+         {:pair/left-id left-id
+          :pair/right-id right-id
+          :pair/values #{left-value right-value}})
+       (sort-by (juxt (comp str :pair/left-id)
+                      (comp str :pair/right-id)))
+       vec))

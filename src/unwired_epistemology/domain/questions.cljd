@@ -1,0 +1,30 @@
+(ns unwired-epistemology.domain.questions)
+
+(defn strict-majority [electorate]
+  (inc (quot (count electorate) 2)))
+
+(defn submit [question-id text author-id electorate]
+  (if (and (seq text) (contains? electorate author-id))
+    {:ok {:question/id question-id
+          :question/text text
+          :question/author-id author-id
+          :question/status :question.status/holding
+          :question/electorate electorate
+          :question/approvals #{}}}
+    {:error :question.error/invalid-submission}))
+
+(defn approve [question member-id]
+  (cond
+    (not= :question.status/holding (:question/status question))
+    {:error :question.error/not-holding}
+
+    (not (contains? (:question/electorate question) member-id))
+    {:error :question.error/ineligible-member}
+
+    :else
+    (let [approved (update question :question/approvals conj member-id)
+          promoted? (>= (count (:question/approvals approved))
+                        (strict-majority (:question/electorate approved)))]
+      {:ok (cond-> approved
+             promoted? (assoc :question/status :question.status/approved))
+       :promoted? promoted?})))

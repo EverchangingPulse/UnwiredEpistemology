@@ -1,0 +1,79 @@
+(ns unwired-epistemology.domain.voting
+  (:require [unwired-epistemology.domain.likert :as likert]))
+
+(defn open [question-id electorate]
+  {:vote/question-id question-id
+   :vote/phase :vote.phase/voting
+   :vote/electorate electorate
+   :vote/commitments {}
+   :vote/reveals {}
+   :vote/positions {}})
+
+(defn commit [vote member-id commitment]
+  (cond
+    (not= :vote.phase/voting (:vote/phase vote))
+    {:error :vote.error/not-voting}
+
+    (not (contains? (:vote/electorate vote) member-id))
+    {:error :vote.error/ineligible-member}
+
+    (or (nil? commitment) (= "" commitment))
+    {:error :vote.error/invalid-commitment}
+
+    :else
+    (let [updated (assoc-in vote [:vote/commitments member-id] commitment)
+          ready? (= (:vote/electorate updated)
+                    (set (keys (:vote/commitments updated))))]
+      {:ok (cond-> updated
+             ready? (assoc :vote/phase :vote.phase/reveal-ready))
+       :effects (if ready?
+                  [{:effect/type :effect/show-reveal-ready}]
+                  [])})))
+
+(defn reveal [vote member-id value nonce verify-commitment]
+  (cond
+    (not= :vote.phase/reveal-ready (:vote/phase vote))
+    {:error :vote.error/not-reveal-ready}
+
+    (not (likert/valid? value))
+    {:error :vote.error/invalid-value}
+
+    (not (verify-commitment
+           (get-in vote [:vote/commitments member-id])
+           value
+           nonce))
+    {:error :vote.error/commitment-mismatch}
+
+    :else
+    (let [revealed (-> vote
+                       (assoc-in [:vote/reveals member-id] value)
+                       (assoc-in [:vote/positions member-id] value))
+          complete? (= (:vote/electorate revealed)
+                       (set (keys (:vote/reveals revealed))))]
+      {:ok (cond-> revealed
+             complete? (assoc :vote/phase :vote.phase/revealed))})))
+
+(defn begin-discussion [vote]
+  (if (= :vote.phase/revealed (:vote/phase vote))
+    {:ok (assoc vote :vote/phase :vote.phase/discussion)}
+    {:error :vote.error/not-revealed}))
+
+(defn reposition [vote member-id value sequence-number]
+  (let [current-sequence (get-in vote [:vote/position-sequences member-id] -1)]
+    (cond
+      (not= :vote.phase/discussion (:vote/phase vote))
+      {:error :vote.error/not-discussing}
+
+      (not (contains? (:vote/electorate vote) member-id))
+      {:error :vote.error/ineligible-member}
+
+      (not (likert/valid? value))
+      {:error :vote.error/invalid-value}
+
+      (<= sequence-number current-sequence)
+      {:error :vote.error/stale-position}
+
+      :else
+      {:ok (-> vote
+               (assoc-in [:vote/positions member-id] value)
+               (assoc-in [:vote/position-sequences member-id] sequence-number))})))

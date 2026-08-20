@@ -1,0 +1,23 @@
+(ns unwired-epistemology.domain.questions-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [unwired-epistemology.domain.questions :as questions]))
+
+(deftest promotes-only-after-strict-majority
+  (let [electorate #{:a :b :c :d}
+        question (:ok (questions/submit :q1 "A claim" :a electorate))
+        first-result (questions/approve question :a)
+        second-result (questions/approve (:ok first-result) :b)
+        third-result (questions/approve (:ok second-result) :c)]
+    (testing "a tie does not promote"
+      (is (false? (:promoted? second-result)))
+      (is (= :question.status/holding
+             (:question/status (:ok second-result)))))
+    (testing "greater than half promotes"
+      (is (true? (:promoted? third-result)))
+      (is (= :question.status/approved
+             (:question/status (:ok third-result)))))))
+
+(deftest rejects-ineligible-approval
+  (let [question (:ok (questions/submit :q1 "A claim" :a #{:a :b}))]
+    (is (= :question.error/ineligible-member
+           (:error (questions/approve question :outsider))))))

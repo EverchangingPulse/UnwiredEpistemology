@@ -1,0 +1,22 @@
+(ns unwired-epistemology.domain.empathy-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [unwired-epistemology.domain.empathy :as empathy]))
+
+(deftest detects-only-exact-oppositions
+  (testing "allowed pairs"
+    (is (empathy/opposing? 1 7))
+    (is (empathy/opposing? 7 1))
+    (is (empathy/opposing? 2 6)))
+  (testing "excluded pairs"
+    (is (not (empathy/opposing? 3 5)))
+    (is (not (empathy/opposing? 1 6)))
+    (is (not (empathy/opposing? 4 4)))))
+
+(deftest produces-deterministic-unique-pairings
+  (is (= [{:pair/left-id :a
+           :pair/right-id :b
+           :pair/values #{1 7}}
+          {:pair/left-id :c
+           :pair/right-id :d
+           :pair/values #{2 6}}]
+         (empathy/pairings {:d 6 :c 2 :a 1 :b 7}))))

@@ -1,0 +1,15 @@
+(ns unwired-epistemology.application.presentation)
+
+(defn room-created [room]
+  {:view/screen :view.screen/room
+   :view/title "Unwired Epistemology"
+   :view/heading "P2P Spectrum"
+   :view/status "Architecture scaffold and tested domain core"
+   :view/room-id (:room/id room)
+   :view/connection-mode (:room/connection-mode room)})
+
+(defn startup-failed [error]
+  {:view/screen :view.screen/error
+   :view/title "Unwired Epistemology"
+   :view/heading "Unable to start"
+   :view/status (str error)})

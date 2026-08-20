@@ -1,0 +1,58 @@
+name: Android APK
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: DeLaGuardo/setup-clojure@13.6.1
+        with:
+          cli: 1.12.5.1664
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Initialize Flutter project
+        run: clojure -M:cljd init
+      - name: Compile domain tests
+        run: >-
+          clojure -M:cljd compile
+          unwired-epistemology.domain.likert-test
+          unwired-epistemology.domain.questions-test
+          unwired-epistemology.domain.voting-test
+          unwired-epistemology.domain.empathy-test
+          unwired-epistemology.application.room-test
+          unwired-epistemology.application.runtime-test
+      - name: Run domain tests
+        run: flutter test
+      - name: Enforce presentation dependency direction
+        run: >-
+          ! grep -R -E
+          'unwired-epistemology\.(application|domain)'
+          src/unwired_epistemology/platform
+      - name: Compile application
+        run: clojure -M:cljd compile
+      - name: Build installable APK
+        run: flutter build apk --debug
+      - name: Publish APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unwired-epistemology-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

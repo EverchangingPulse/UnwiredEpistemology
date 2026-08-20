@@ -1,0 +1,6 @@
+(ns unwired-epistemology.main
+  (:require [unwired-epistemology.application.runtime :as application]
+            [unwired-epistemology.platform.flutter.view :as view]))
+
+(defn main []
+  (application/start {:view/render! view/render!}))

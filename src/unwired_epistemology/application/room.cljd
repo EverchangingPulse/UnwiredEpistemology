@@ -1,0 +1,91 @@
+(ns unwired-epistemology.application.room
+  (:require [unwired-epistemology.domain.empathy :as empathy]
+            [unwired-epistemology.domain.questions :as questions]
+            [unwired-epistemology.domain.room :as room]
+            [unwired-epistemology.domain.voting :as voting]))
+
+(defn- accepted [state effects]
+  {:ok state :effects effects})
+
+(defn- rejected [error]
+  {:error error :effects []})
+
+(defn- unwrap [result transform effects]
+  (if-let [value (:ok result)]
+    (accepted (transform value) (into effects (:effects result)))
+    (rejected (:error result))))
+
+(defn handle [state command dependencies]
+  (case (:command/type command)
+    :command/join
+    (unwrap (room/join state
+                       (:member/id command)
+                       (:member/nickname command))
+            identity
+            [])
+
+    :command/submit-question
+    (unwrap (questions/submit (:question/id command)
+                              (:question/text command)
+                              (:member/id command)
+                              (room/active-members state))
+            #(assoc-in state [:room/questions (:question/id %)] %)
+            [])
+
+    :command/approve-question
+    (let [question-id (:question/id command)
+          result (questions/approve
+                   (get-in state [:room/questions question-id])
+                   (:member/id command))]
+      (if-let [question (:ok result)]
+        (accepted (cond-> (assoc-in state [:room/questions question-id] question)
+                    (:promoted? result)
+                    (update :room/question-queue conj question-id))
+                  [])
+        (rejected (:error result))))
+
+    :command/start-vote
+    (if (:room/active-vote state)
+      (rejected :room.error/question-already-active)
+      (accepted (assoc state :room/active-vote
+                       (voting/open (:question/id command)
+                                    (room/active-members state)))
+                []))
+
+    :command/commit-vote
+    (unwrap (voting/commit (:room/active-vote state)
+                           (:member/id command)
+                           (:vote/commitment command))
+            #(assoc state :room/active-vote %)
+            [])
+
+    :command/reveal-vote
+    (unwrap (voting/reveal (:room/active-vote state)
+                           (:member/id command)
+                           (:vote/value command)
+                           (:vote/nonce command)
+                           (:commitment/verify dependencies))
+            #(assoc state :room/active-vote %)
+            [])
+
+    :command/begin-discussion
+    (unwrap (voting/begin-discussion (:room/active-vote state))
+            #(assoc state :room/active-vote %)
+            [])
+
+    :command/reposition
+    (let [result (voting/reposition (:room/active-vote state)
+                                    (:member/id command)
+                                    (:vote/value command)
+                                    (:message/sequence command))]
+      (if-let [vote (:ok result)]
+        (accepted (assoc state :room/active-vote vote)
+                  [{:effect/type :effect/broadcast-position
+                    :member/id (:member/id command)
+                    :vote/value (:vote/value command)
+                    :message/sequence (:message/sequence command)}
+                   {:effect/type :effect/evaluate-empathy
+                    :empathy/pairings (empathy/pairings (:vote/positions vote))}])
+        (rejected (:error result))))
+
+    (rejected :command.error/unknown)))

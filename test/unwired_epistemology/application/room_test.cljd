@@ -1,0 +1,36 @@
+(ns unwired-epistemology.application.room-test
+  (:require [clojure.test :refer [deftest is]]
+            [unwired-epistemology.application.room :as application]
+            [unwired-epistemology.domain.room :as room]))
+
+(def dependencies
+  {:commitment/verify (fn [commitment value nonce]
+                        (= commitment (str value ":" nonce)))})
+
+(defn dispatch [state command]
+  (:ok (application/handle state command dependencies)))
+
+(deftest executes-top-down-room-cycle
+  (let [created (:ok (room/create :room-1 :connection.mode/dynamic))
+        joined-a (dispatch created {:command/type :command/join
+                                    :member/id :a
+                                    :member/nickname "Anonymous Owl"})
+        joined-b (dispatch joined-a {:command/type :command/join
+                                     :member/id :b
+                                     :member/nickname "Pixel Fox"})
+        submitted (dispatch joined-b {:command/type :command/submit-question
+                                      :question/id :q1
+                                      :question/text "Knowledge requires certainty"
+                                      :member/id :a})
+        approved-a (dispatch submitted {:command/type :command/approve-question
+                                        :question/id :q1
+                                        :member/id :a})
+        approved-b (dispatch approved-a {:command/type :command/approve-question
+                                         :question/id :q1
+                                         :member/id :b})
+        voting (dispatch approved-b {:command/type :command/start-vote
+                                     :question/id :q1})]
+    (is (= [:q1] (:room/question-queue approved-b)))
+    (is (= #{:a :b} (get-in voting [:room/active-vote :vote/electorate])))
+    (is (= :vote.phase/voting
+           (get-in voting [:room/active-vote :vote/phase])))))

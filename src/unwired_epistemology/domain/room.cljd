@@ -1,0 +1,31 @@
+(ns unwired-epistemology.domain.room)
+
+(def connection-modes
+  #{:connection.mode/strictly-local
+    :connection.mode/strictly-remote
+    :connection.mode/dynamic})
+
+(defn create [room-id connection-mode]
+  (if (contains? connection-modes connection-mode)
+    {:ok {:room/id room-id
+          :room/connection-mode connection-mode
+          :room/members {}
+          :room/questions {}
+          :room/question-queue []
+          :room/active-vote nil}}
+    {:error :room.error/invalid-connection-mode}))
+
+(defn join [room member-id nickname]
+  (if (and (seq nickname) (not (contains? (:room/members room) member-id)))
+    {:ok (assoc-in room [:room/members member-id]
+                   {:member/id member-id
+                    :member/nickname nickname
+                    :member/status :member.status/active})}
+    {:error :room.error/invalid-member}))
+
+(defn active-members [room]
+  (->> (:room/members room)
+       (keep (fn [[member-id member]]
+               (when (= :member.status/active (:member/status member))
+                 member-id)))
+       set))

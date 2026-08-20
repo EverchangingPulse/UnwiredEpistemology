@@ -1,0 +1,10 @@
+(ns unwired-epistemology.application.runtime
+  (:require [unwired-epistemology.application.presentation :as presentation]
+            [unwired-epistemology.domain.room :as room]))
+
+(defn start [dependencies]
+  (let [render! (:view/render! dependencies)
+        result (room/create :room/preview :connection.mode/dynamic)]
+    (if-let [created (:ok result)]
+      (render! (presentation/room-created created))
+      (render! (presentation/startup-failed (:error result))))))

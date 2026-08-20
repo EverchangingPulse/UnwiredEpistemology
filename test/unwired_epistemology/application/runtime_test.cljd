@@ -1,0 +1,10 @@
+(ns unwired-epistemology.application.runtime-test
+  (:require [clojure.test :refer [deftest is]]
+            [unwired-epistemology.application.runtime :as application]))
+
+(deftest business-application-drives-presentation
+  (let [rendered (atom nil)]
+    (application/start {:view/render! #(reset! rendered %)})
+    (is (= :view.screen/room (:view/screen @rendered)))
+    (is (= :connection.mode/dynamic
+           (:view/connection-mode @rendered)))))

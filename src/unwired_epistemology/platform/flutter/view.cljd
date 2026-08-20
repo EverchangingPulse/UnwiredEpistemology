@@ -1,0 +1,26 @@
+(ns unwired-epistemology.platform.flutter.view
+  (:require ["package:flutter/material.dart" :as m]
+            [cljd.flutter :as f]))
+
+(defn render! [model]
+  (f/run
+    (m/MaterialApp
+      .title (:view/title model)
+      .theme (m/ThemeData .useMaterial3 true)
+      .home
+      (m/Scaffold
+        .appBar (m/AppBar
+                  .title (m/Text (:view/title model)))
+        .body
+        (m/Center
+          .child
+          (m/Padding
+            .padding (m/EdgeInsets/all 24.0)
+            .child
+            (m/Column
+              .mainAxisSize m/MainAxisSize/min
+              .children
+              [(m/Text (:view/heading model)
+                       .style (m/TextStyle .fontSize 28.0))
+               (m/SizedBox .height 12.0)
+               (m/Text (:view/status model))])))))))

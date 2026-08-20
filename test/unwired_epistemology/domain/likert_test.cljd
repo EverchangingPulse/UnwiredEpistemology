@@ -1,0 +1,10 @@
+(ns unwired-epistemology.domain.likert-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [unwired-epistemology.domain.likert :as likert]))
+
+(deftest accepts-only-seven-canonical-values
+  (testing "valid values"
+    (is (every? likert/valid? (range 1 8))))
+  (testing "invalid values"
+    (is (not-any? likert/valid? [nil 0 8 -1 3.5])))
+  (is (= :likert/neutral (likert/label 4))))
