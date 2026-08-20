@@ -28,6 +28,10 @@ Rooms MUST work across local and remote peer-to-peer transports and MUST support
 - The replicated protocol MUST define message identity, sender identity, room identity, schema version, causal or deterministic ordering information, replay protection, and integrity verification.
 - Duplicate, delayed, reordered, or replayed messages MUST NOT corrupt room state or produce duplicate actions.
 - Conflict resolution MUST be deterministic so peers converge after partitions and reconnections.
+- Peer transports MUST expose updates through an Observer-style application port.
+- Observers MUST publish immutable peer events and MUST NOT mutate domain state or invoke graphical code.
+- The business application MUST validate, order, deduplicate, and reduce observed events before calling the presentation API.
+- Unsubscribing a transport observer MUST prevent subsequent events from entering the application.
 
 ### 3.2 Clean architecture boundary
 

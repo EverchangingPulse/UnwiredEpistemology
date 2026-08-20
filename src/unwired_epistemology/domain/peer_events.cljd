@@ -1,0 +1,29 @@
+(ns unwired-epistemology.domain.peer-events)
+
+(defn empty-log []
+  {:peer-events/seen-ids #{}
+   :peer-events/sequences {}})
+
+(defn accept [log event]
+  (let [message-id (:message/id event)
+        peer-id (:peer/id event)
+        sequence-number (:message/sequence event)
+        current-sequence (get-in log [:peer-events/sequences peer-id] -1)]
+    (cond
+      (or (nil? message-id)
+          (nil? peer-id)
+          (not (int? sequence-number))
+          (neg? sequence-number))
+      {:error :peer-event.error/invalid}
+
+      (contains? (:peer-events/seen-ids log) message-id)
+      {:error :peer-event.error/duplicate}
+
+      (<= sequence-number current-sequence)
+      {:error :peer-event.error/stale}
+
+      :else
+      {:ok (-> log
+               (update :peer-events/seen-ids conj message-id)
+               (assoc-in [:peer-events/sequences peer-id] sequence-number))
+       :event event})))
