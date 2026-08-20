@@ -58,7 +58,7 @@ clojure -M:cljd compile \
   unwired-epistemology.domain.empathy-test \
   unwired-epistemology.application.room-test \
   unwired-epistemology.application.runtime-test
-flutter test
+flutter test test/cljd-out
 ```
 
 ## Delivery

@@ -41,7 +41,7 @@ jobs:
           unwired-epistemology.application.room-test
           unwired-epistemology.application.runtime-test
       - name: Run domain tests
-        run: flutter test
+        run: flutter test test/cljd-out
       - name: Enforce presentation dependency direction
         run: >-
           ! grep -R -E
