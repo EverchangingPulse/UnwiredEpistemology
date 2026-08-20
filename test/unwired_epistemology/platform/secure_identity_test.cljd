@@ -1,0 +1,12 @@
+(ns unwired-epistemology.platform.secure-identity-test
+  (:require [clojure.test :refer [deftest is]]
+            [unwired-epistemology.platform.secure-identity :as secure]))
+
+(deftest identity-codec-round-trips-without-exposing-a-custom-name-input
+  (let [identity {:member/id "peer-123"
+                  :member/nickname "Curious Heron"}]
+    (is (= identity
+           (secure/decode-identity (secure/encode-identity identity))))))
+
+(deftest malformed-persisted-values-are-ignored
+  (is (nil? (secure/decode-identity "missing separator"))))

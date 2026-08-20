@@ -83,7 +83,7 @@ Implemented now:
 - exact `[1,7]` and `[2,6]` empathy-pair detection;
 - pure application reducer and effect descriptions.
 - Observer-based peer-event ingestion with deduplication and ordering;
-- room-scoped anonymous identity generation and restoration core;
+- room-scoped anonymous identity generation with Android Keystore-backed restoration;
 - a complete local question, vote, reveal, and reposition UI cycle.
 
 Deferred behind explicit ports and architecture decisions:
@@ -91,7 +91,7 @@ Deferred behind explicit ports and architecture decisions:
 - BLE and Wi-Fi Direct adapters;
 - internet P2P discovery and NAT traversal;
 - cryptographic commitment implementation;
-- encrypted transport and persistence;
+- encrypted transport;
 - production Android UI and accessibility;
 - signed release APK/AAB distribution.
 

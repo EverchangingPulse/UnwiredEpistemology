@@ -1,0 +1,34 @@
+(ns unwired-epistemology.platform.secure-identity
+  (:require [clojure.string :as string]
+            ["dart:math" :as math]
+            ["package:flutter_secure_storage/flutter_secure_storage.dart" :as secure]))
+
+(def separator "\u001f")
+
+(defn encode-identity [identity]
+  (str (:member/id identity) separator (:member/nickname identity)))
+
+(defn decode-identity [encoded]
+  (when (seq encoded)
+    (let [[member-id nickname] (string/split encoded (re-pattern separator) 2)]
+      (when (and (seq member-id) (seq nickname))
+        {:member/id member-id :member/nickname nickname}))))
+
+(defn ^:async ports []
+  (let [storage (secure/FlutterSecureStorage)
+        persisted (await (.readAll storage))
+        cache (atom (into {}
+                          (keep (fn [[key encoded]]
+                                  (when-let [identity (decode-identity encoded)]
+                                    [key identity])))
+                          persisted))
+        entropy (math.Random/secure)]
+    {:identity/load #(get @cache %)
+     :identity/save!
+     (fn [key identity]
+       (swap! cache assoc key identity)
+       (.write storage :key key :value (encode-identity identity)))
+     :identity/new-member-id
+     #(str "peer-" (.nextInt entropy 2147483647)
+           "-" (.nextInt entropy 2147483647))
+     :identity/random-index #(.nextInt entropy 2147483647)}))
