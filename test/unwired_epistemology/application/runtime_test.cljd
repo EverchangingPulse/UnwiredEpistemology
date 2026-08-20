@@ -51,3 +51,18 @@
     (is (contains? (get-in @(:application/state running)
                            [:app/vote :vote/commitments])
                    :peer/generated))))
+
+(deftest custom-question-stays-behind-approval-before-voting
+  (let [rendered (atom nil)
+        running (application/start (dependencies #(reset! rendered %)))
+        dispatch! (:application/dispatch! running)]
+    (dispatch! {:event/type :event/create-room})
+    (dispatch! {:event/type :event/question-draft-changed
+                :question/text "Certainty is necessary"})
+    (dispatch! {:event/type :event/submit-custom-question})
+    (is (= :view.screen/question-pending (:view/screen @rendered)))
+    (dispatch! {:event/type :event/approve-custom-question})
+    (is (= :view.screen/question-ready (:view/screen @rendered)))
+    (is (= :question.status/approved
+           (get-in @(:application/state running)
+                   [:app/question :question/status])))))

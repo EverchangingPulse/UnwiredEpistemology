@@ -19,9 +19,23 @@
         .onPressed #(dispatch! (:action/event action))
         .child (m/Text (:action/label action))))))
 
+(defn- input-widget [dispatch! input]
+  (m/Padding
+    .padding (painting.EdgeInsets/only .top 8.0 .bottom 8.0)
+    .child
+    (m/TextField
+      .decoration (m/InputDecoration
+                    .border (m/OutlineInputBorder)
+                    .labelText (:input/label input))
+      .onChanged
+      (fn [value]
+        (dispatch! {:event/type (:input/event-type input)
+                    (:input/value-key input) value})))))
+
 (defn render! [model]
   (let [dispatch! (:view/dispatch! model)
         details (mapv detail-widget (:view/details model))
+        inputs (mapv #(input-widget dispatch! %) (:view/inputs model))
         actions (mapv #(action-widget dispatch! %) (:view/actions model))]
     (f/run
       (m/MaterialApp
@@ -43,4 +57,4 @@
                        (m/SizedBox .height 12.0)
                        (m/Text (:view/status model))
                        (m/SizedBox .height 16.0)]
-                      (concat details actions))))))))))
+                      (concat details inputs actions))))))))))

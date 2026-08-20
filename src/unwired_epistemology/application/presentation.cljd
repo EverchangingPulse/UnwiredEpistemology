@@ -20,6 +20,10 @@
 
 (defn view [state dispatch!]
   (let [screen (:app/screen state)
+        local-id (:app/local-member-id state)
+        nickname (or (get-in state [:app/room :room/members local-id :member/nickname])
+                     "Anonymous participant")
+        position (get-in state [:app/vote :vote/positions local-id])
         base {:view/title "Unwired Epistemology"
               :view/screen screen
               :view/dispatch! dispatch!}]
@@ -33,18 +37,36 @@
                                 {:event/type :event/create-room})]}
 
         :view.screen/room
-        {:view/heading "Anonymous Owl's room"
+        {:view/heading (str nickname "'s room")
          :view/status "Choose the first question"
          :view/details ["Mode: Dynamic Auto-Discovery"
                         "Admission: Creator only"
-                        "Participants: Anonymous Owl"]
-         :view/actions [(action "Use catalogue question"
-                                {:event/type :event/use-catalogue-question})]}
+                        (str "Participants: " nickname)]
+         :view/inputs [{:input/label "Write a claim for room approval"
+                        :input/value (:app/question-draft state)
+                        :input/event-type :event/question-draft-changed
+                        :input/value-key :question/text}]
+         :view/actions (cond->
+                         [(action "Use catalogue question"
+                                  {:event/type :event/use-catalogue-question})]
+                         (seq (:app/question-draft state))
+                         (conj (action "Submit claim for approval"
+                                       {:event/type :event/submit-custom-question})))}
+
+        :view.screen/question-pending
+        {:view/heading (:question/text (:app/question state))
+         :view/status "Waiting for democratic approval"
+         :view/details [(str (count (get-in state [:app/question :question/approvals]))
+                             " approval(s) of "
+                             (count (get-in state [:app/question :question/electorate]))
+                             " active participant(s)")]
+         :view/actions [(action "Approve this claim"
+                                {:event/type :event/approve-custom-question})]}
 
         :view.screen/question-ready
         {:view/heading (:question/text (:app/question state))
          :view/status "The question is approved"
-         :view/details ["Approved by Anonymous Owl"]
+         :view/details [(str "Approved by " nickname)]
          :view/actions [(action "Start voting"
                                 {:event/type :event/start-vote})]}
 
@@ -67,17 +89,13 @@
 
         :view.screen/revealed
         {:view/heading (:question/text (:app/question state))
-         :view/status (str "Anonymous Owl: "
-                           (get likert-labels
-                                (get-in state [:app/vote :vote/positions :local])))
+         :view/status (str nickname ": " (get likert-labels position))
          :view/actions [(action "Begin discussion"
                                 {:event/type :event/begin-discussion})]}
 
         :view.screen/discussion
         {:view/heading "Discussion spectrum"
-         :view/status (str "Anonymous Owl: "
-                           (get likert-labels
-                                (get-in state [:app/vote :vote/positions :local])))
+         :view/status (str nickname ": " (get likert-labels position))
          :view/details ["Move at any time as your view changes"]
          :view/actions (spectrum-actions :event/reposition)}
 

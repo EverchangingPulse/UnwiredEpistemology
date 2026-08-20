@@ -43,6 +43,28 @@
              :app/question question)
       (failed state (or (:error approved) (:error submitted))))))
 
+(defn- submit-custom-question [state]
+  (let [member-id (:app/local-member-id state)
+        electorate (room/active-members (:app/room state))
+        question-id (str "question-" (inc (count (get-in state [:app/room :room/questions]))))
+        result (questions/submit question-id (:app/question-draft state)
+                                 member-id electorate)]
+    (if-let [question (:ok result)]
+      (assoc state :app/screen :view.screen/question-pending
+             :app/question question)
+      (failed state (:error result)))))
+
+(defn- approve-custom-question [state]
+  (let [result (questions/approve (:app/question state)
+                                  (:app/local-member-id state))]
+    (if-let [question (:ok result)]
+      (assoc state
+             :app/screen (if (:promoted? result)
+                           :view.screen/question-ready
+                           :view.screen/question-pending)
+             :app/question question)
+      (failed state (:error result)))))
+
 (defn- start-vote [state]
   (assoc state
          :app/screen :view.screen/voting
@@ -100,6 +122,10 @@
     :event/reset (initial-state)
     :event/create-room (create-room state dependencies)
     :event/use-catalogue-question (use-catalogue-question state)
+    :event/question-draft-changed (assoc state :app/question-draft
+                                         (:question/text event))
+    :event/submit-custom-question (submit-custom-question state)
+    :event/approve-custom-question (approve-custom-question state)
     :event/start-vote (start-vote state)
     :event/select-vote (assoc state :app/selected-value (:vote/value event))
     :event/submit-vote (submit-vote state)
