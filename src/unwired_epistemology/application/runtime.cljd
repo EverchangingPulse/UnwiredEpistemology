@@ -1,5 +1,6 @@
 (ns unwired-epistemology.application.runtime
   (:require [unwired-epistemology.application.presentation :as presentation]
+            [unwired-epistemology.application.identity :as identity]
             [unwired-epistemology.domain.questions :as questions]
             [unwired-epistemology.domain.room :as room]
             [unwired-epistemology.domain.voting :as voting]))
@@ -14,8 +15,9 @@
 (defn- failed [state error]
   (assoc state :app/screen :view.screen/error :app/error error))
 
-(defn- create-room [state]
-  (let [creator {:member/id :local :member/nickname "Anonymous Owl"}
+(defn- create-room [state dependencies]
+  (let [room-id :room/local-preview
+        creator (:ok (identity/for-room dependencies room-id))
         result (room/create :room/local-preview
                             :connection.mode/dynamic
                             creator
@@ -86,10 +88,12 @@
              :app/position-sequence sequence-number)
       (failed state (:error result)))))
 
-(defn transition [state event]
+(defn transition
+  ([state event] (transition state event nil))
+  ([state event dependencies]
   (case (:event/type event)
     :event/reset (initial-state)
-    :event/create-room (create-room state)
+    :event/create-room (create-room state dependencies)
     :event/use-catalogue-question (use-catalogue-question state)
     :event/start-vote (start-vote state)
     :event/select-vote (assoc state :app/selected-value (:vote/value event))
@@ -97,13 +101,13 @@
     :event/acknowledge-reveal (acknowledge-reveal state)
     :event/begin-discussion (begin-discussion state)
     :event/reposition (reposition state (:vote/value event))
-    state))
+    state)))
 
 (defn start [dependencies]
   (let [state (atom (initial-state))
         render! (:view/render! dependencies)]
     (letfn [(dispatch! [event]
-              (swap! state transition event)
+              (swap! state transition event dependencies)
               (render! (presentation/view @state dispatch!)))]
       (render! (presentation/view @state dispatch!))
       {:application/dispatch! dispatch!

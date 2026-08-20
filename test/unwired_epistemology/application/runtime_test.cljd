@@ -2,9 +2,16 @@
   (:require [clojure.test :refer [deftest is]]
             [unwired-epistemology.application.runtime :as application]))
 
+(defn dependencies [render!]
+  {:view/render! render!
+   :identity/load (constantly nil)
+   :identity/save! (fn [_ _] nil)
+   :identity/new-member-id (constantly :local)
+   :identity/random-index (constantly 0)})
+
 (deftest business-application-drives-complete-local-cycle
   (let [rendered (atom [])
-        running (application/start {:view/render! #(swap! rendered conj %)})
+        running (application/start (dependencies #(swap! rendered conj %)))
         dispatch! (:application/dispatch! running)]
     (dispatch! {:event/type :event/create-room})
     (dispatch! {:event/type :event/use-catalogue-question})
@@ -23,7 +30,7 @@
 
 (deftest graphical-events-are-callbacks-owned-by-application
   (let [rendered (atom nil)
-        running (application/start {:view/render! #(reset! rendered %)})]
+        running (application/start (dependencies #(reset! rendered %)))]
     ((:view/dispatch! @rendered) {:event/type :event/create-room})
     (is (= :view.screen/room (:view/screen @rendered)))
     (is (= (:view/dispatch! @rendered)

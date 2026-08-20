@@ -1,0 +1,19 @@
+(ns unwired-epistemology.application.identity
+  (:require [unwired-epistemology.domain.identity :as identity]))
+
+(defn for-room
+  "Loads a room-scoped anonymous identity, or generates and persists one.
+  Storage and entropy are ports injected by the composition root."
+  [ports room-id]
+  (let [key (identity/storage-key room-id)
+        stored ((:identity/load ports) key)]
+    (if (identity/valid? stored)
+      {:ok stored}
+      (let [generated (identity/generate ((:identity/new-member-id ports))
+                                         ((:identity/random-index ports))
+                                         ((:identity/random-index ports)))]
+        (if-let [anonymous (:ok generated)]
+          (do
+            ((:identity/save! ports) key anonymous)
+            {:ok anonymous})
+          generated)))))

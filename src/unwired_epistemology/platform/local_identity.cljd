@@ -1,0 +1,10 @@
+(ns unwired-epistemology.platform.local-identity)
+
+;; Process-local adapter used until encrypted Android persistence is composed.
+(defonce identities (atom {}))
+
+(defn ports []
+  {:identity/load #(get @identities %)
+   :identity/save! #(swap! identities assoc %1 %2)
+   :identity/new-member-id #(keyword "peer" (str (gensym)))
+   :identity/random-index #(rand-int 1000000)})

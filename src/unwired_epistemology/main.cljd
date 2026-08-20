@@ -1,6 +1,7 @@
 (ns unwired-epistemology.main
   (:require [unwired-epistemology.application.runtime :as application]
+            [unwired-epistemology.platform.local-identity :as identity]
             [unwired-epistemology.platform.flutter.view :as view]))
 
 (defn main []
-  (application/start {:view/render! view/render!}))
+  (application/start (assoc (identity/ports) :view/render! view/render!)))

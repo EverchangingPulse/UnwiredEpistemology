@@ -1,0 +1,29 @@
+(ns unwired-epistemology.domain.identity)
+
+(def neutral-adjectives
+  ["Anonymous" "Calm" "Curious" "Gentle" "Quiet" "Thoughtful"
+   "Bright" "Patient" "Open" "Kind" "Steady" "Wandering"])
+
+(def neutral-animals
+  ["Owl" "Fox" "Otter" "Badger" "Heron" "Moth"
+   "Panda" "Raven" "Seal" "Turtle" "Wren" "Yak"])
+
+(defn storage-key [room-id]
+  (str "room-identity:" room-id))
+
+(defn generate [member-id adjective-index animal-index]
+  (if (and (seq (str member-id))
+           (integer? adjective-index)
+           (integer? animal-index))
+    {:ok {:member/id member-id
+          :member/nickname
+          (str (nth neutral-adjectives
+                    (mod adjective-index (count neutral-adjectives)))
+               " "
+               (nth neutral-animals
+                    (mod animal-index (count neutral-animals))))}}
+    {:error :identity.error/invalid-generation-input}))
+
+(defn valid? [identity]
+  (and (some? (:member/id identity))
+       (seq (:member/nickname identity))))

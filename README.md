@@ -2,7 +2,7 @@
 
 Unwired Epistemology is a Clojure-first Android application for anonymous, peer-to-peer spectrum discussions.
 
-This first milestone contains an executable Flutter shell, a framework-independent ClojureDart domain core, deterministic state transitions, and automated domain tests. GitHub Actions compiles the ClojureDart source, runs the tests, builds an Android APK, and publishes the APK as a workflow artifact.
+The current development milestone contains a business-driven, single-device room cycle, a framework-independent ClojureDart domain core, deterministic state transitions, and automated tests. GitHub Actions compiles the ClojureDart source, runs the tests, builds an Android APK, and publishes the APK as a workflow artifact.
 
 ## Architecture
 
@@ -53,12 +53,14 @@ After initialization:
 dart pub add --dev test
 clojure -M:cljd compile \
   unwired-epistemology.domain.peer-events-test \
+  unwired-epistemology.domain.identity-test \
   unwired-epistemology.domain.admission-test \
   unwired-epistemology.domain.likert-test \
   unwired-epistemology.domain.questions-test \
   unwired-epistemology.domain.voting-test \
   unwired-epistemology.domain.empathy-test \
   unwired-epistemology.application.room-test \
+  unwired-epistemology.application.identity-test \
   unwired-epistemology.application.peer-observer-test \
   unwired-epistemology.application.runtime-test
 flutter test test/cljd-out
@@ -80,6 +82,9 @@ Implemented now:
 - post-reveal repositioning;
 - exact `[1,7]` and `[2,6]` empathy-pair detection;
 - pure application reducer and effect descriptions.
+- Observer-based peer-event ingestion with deduplication and ordering;
+- room-scoped anonymous identity generation and restoration core;
+- a complete local question, vote, reveal, and reposition UI cycle.
 
 Deferred behind explicit ports and architecture decisions:
 
