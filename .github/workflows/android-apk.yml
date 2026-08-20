@@ -85,26 +85,4 @@ jobs:
           emulator-options: >-
             -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
             -camera-back none
-          script: |
-            APP_APK=build/app/outputs/flutter-apk/app-debug.apk
-            APP_ID=$(aapt dump badging "$APP_APK" | sed -n "s/package: name='\([^']*\)'.*/\1/p")
-            test -n "$APP_ID"
-            adb install -r "$APP_APK"
-            adb logcat -c
-            adb shell monkey -p "$APP_ID" -c android.intent.category.LAUNCHER 1
-            for attempt in 1 2 3 4 5 6 7 8; do
-              APP_PID=$(adb shell pidof "$APP_ID" | tr -d '\r')
-              test -n "$APP_PID" && break
-              sleep 2
-            done
-            test -n "$APP_PID"
-            sleep 4
-            adb shell uiautomator dump /sdcard/window.xml
-            adb pull /sdcard/window.xml build/window.xml
-            grep -q 'P2P Spectrum' build/window.xml
-            adb shell input tap 540 440
-            sleep 2
-            adb shell uiautomator dump /sdcard/room-window.xml
-            adb pull /sdcard/room-window.xml build/room-window.xml
-            grep -q 'Choose the first question' build/room-window.xml
-            ! adb logcat --pid="$APP_PID" -d | grep -q 'FATAL EXCEPTION'
+          script: bash scripts/android_smoke_test.sh
