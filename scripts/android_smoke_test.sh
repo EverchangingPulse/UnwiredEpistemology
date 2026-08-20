@@ -15,11 +15,14 @@ adb shell monkey -p "${app_id}" -c android.intent.category.LAUNCHER 1
 
 app_pid=""
 for attempt in 1 2 3 4 5 6 7 8; do
-  app_pid="$(adb shell pidof "${app_id}" | tr -d '\r')"
+  app_pid="$(adb shell pidof "${app_id}" 2>/dev/null | tr -d '\r' || true)"
   test -n "${app_pid}" && break
   sleep 2
 done
-test -n "${app_pid}"
+if test -z "${app_pid}"; then
+  adb logcat -d | tail -300
+  exit 1
+fi
 
 sleep 4
 adb shell uiautomator dump /sdcard/window.xml
