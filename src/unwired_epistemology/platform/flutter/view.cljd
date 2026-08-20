@@ -1,28 +1,46 @@
 (ns unwired-epistemology.platform.flutter.view
   (:require ["package:flutter/material.dart" :as m]
             ["package:flutter/painting.dart" :as painting]
-            ["package:flutter/rendering.dart" :as rendering]
             [cljd.flutter :as f]))
 
+(defn- detail-widget [detail]
+  (m/Padding
+    .padding (painting.EdgeInsets/only .bottom 6.0)
+    .child (m/Text detail)))
+
+(defn- action-widget [dispatch! action]
+  (m/Padding
+    .padding (painting.EdgeInsets/only .top 8.0)
+    .child
+    (m/SizedBox
+      .width 320.0
+      .child
+      (m/ElevatedButton
+        .onPressed #(dispatch! (:action/event action))
+        .child (m/Text (:action/label action))))))
+
 (defn render! [model]
-  (f/run
-    (m/MaterialApp
-      .title (:view/title model)
-      .theme (m/ThemeData .useMaterial3 true)
-      .home
-      (m/Scaffold
-        .appBar (m/AppBar
-                  .title (m/Text (:view/title model)))
-        .body
-        (m/Center
-          .child
-          (m/Padding
-            .padding (painting.EdgeInsets/all 24.0)
+  (let [dispatch! (:view/dispatch! model)
+        details (mapv detail-widget (:view/details model))
+        actions (mapv #(action-widget dispatch! %) (:view/actions model))]
+    (f/run
+      (m/MaterialApp
+        .title (:view/title model)
+        .theme (m/ThemeData .useMaterial3 true)
+        .home
+        (m/Scaffold
+          .appBar (m/AppBar .title (m/Text (:view/title model)))
+          .body
+          (m/SafeArea
             .child
-            (m/Column
-              .mainAxisSize rendering.MainAxisSize/min
-              .children
-              [(m/Text (:view/heading model)
-                       .style (m/TextStyle .fontSize 28.0))
-               (m/SizedBox .height 12.0)
-               (m/Text (:view/status model))])))))))
+            (m/SingleChildScrollView
+              .padding (painting.EdgeInsets/all 24.0)
+              .child
+              (m/Column
+                .children
+                (into [(m/Text (:view/heading model)
+                               .style (m/TextStyle .fontSize 26.0))
+                       (m/SizedBox .height 12.0)
+                       (m/Text (:view/status model))
+                       (m/SizedBox .height 16.0)]
+                      (concat details actions))))))))))

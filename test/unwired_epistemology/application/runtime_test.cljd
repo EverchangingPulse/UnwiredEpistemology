@@ -2,9 +2,29 @@
   (:require [clojure.test :refer [deftest is]]
             [unwired-epistemology.application.runtime :as application]))
 
-(deftest business-application-drives-presentation
-  (let [rendered (atom nil)]
-    (application/start {:view/render! #(reset! rendered %)})
+(deftest business-application-drives-complete-local-cycle
+  (let [rendered (atom [])
+        running (application/start {:view/render! #(swap! rendered conj %)})
+        dispatch! (:application/dispatch! running)]
+    (dispatch! {:event/type :event/create-room})
+    (dispatch! {:event/type :event/use-catalogue-question})
+    (dispatch! {:event/type :event/start-vote})
+    (dispatch! {:event/type :event/select-vote :vote/value 6})
+    (dispatch! {:event/type :event/submit-vote})
+    (is (= :view.screen/reveal-ready (:view/screen (last @rendered))))
+    (dispatch! {:event/type :event/acknowledge-reveal})
+    (is (= :view.screen/revealed (:view/screen (last @rendered))))
+    (dispatch! {:event/type :event/begin-discussion})
+    (dispatch! {:event/type :event/reposition :vote/value 7})
+    (is (= :view.screen/discussion (:view/screen (last @rendered))))
+    (is (= 7
+           (get-in @(:application/state running)
+                   [:app/vote :vote/positions :local])))))
+
+(deftest graphical-events-are-callbacks-owned-by-application
+  (let [rendered (atom nil)
+        running (application/start {:view/render! #(reset! rendered %)})]
+    ((:view/dispatch! @rendered) {:event/type :event/create-room})
     (is (= :view.screen/room (:view/screen @rendered)))
-    (is (= :connection.mode/dynamic
-           (:view/connection-mode @rendered)))))
+    (is (= (:view/dispatch! @rendered)
+           (:application/dispatch! running)))))

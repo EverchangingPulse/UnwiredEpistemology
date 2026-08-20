@@ -1,10 +1,110 @@
 (ns unwired-epistemology.application.runtime
   (:require [unwired-epistemology.application.presentation :as presentation]
-            [unwired-epistemology.domain.room :as room]))
+            [unwired-epistemology.domain.questions :as questions]
+            [unwired-epistemology.domain.room :as room]
+            [unwired-epistemology.domain.voting :as voting]))
+
+(def catalogue-question
+  {:question/id :catalogue/knowledge-certainty
+   :question/text "Knowledge requires certainty"})
+
+(defn initial-state []
+  {:app/screen :view.screen/home :app/position-sequence 0})
+
+(defn- failed [state error]
+  (assoc state :app/screen :view.screen/error :app/error error))
+
+(defn- create-room [state]
+  (let [creator {:member/id :local :member/nickname "Anonymous Owl"}
+        result (room/create :room/local-preview
+                            :connection.mode/dynamic
+                            creator
+                            :admission.mode/creator-only)]
+    (if-let [created (:ok result)]
+      (assoc state :app/screen :view.screen/room :app/room created)
+      (failed state (:error result)))))
+
+(defn- use-catalogue-question [state]
+  (let [electorate (room/active-members (:app/room state))
+        submitted (questions/submit (:question/id catalogue-question)
+                                    (:question/text catalogue-question)
+                                    :local
+                                    electorate)
+        approved (when-let [question (:ok submitted)]
+                   (questions/approve question :local))]
+    (if-let [question (:ok approved)]
+      (assoc state
+             :app/screen :view.screen/question-ready
+             :app/question question)
+      (failed state (or (:error approved) (:error submitted))))))
+
+(defn- start-vote [state]
+  (assoc state
+         :app/screen :view.screen/voting
+         :app/vote (voting/open (get-in state [:app/question :question/id])
+                                (room/active-members (:app/room state)))))
+
+(defn- submit-vote [state]
+  (let [value (:app/selected-value state)
+        nonce (str "local-" value)
+        commitment (str value ":" nonce)
+        result (voting/commit (:app/vote state) :local commitment)]
+    (if-let [vote (:ok result)]
+      (assoc state
+             :app/screen :view.screen/reveal-ready
+             :app/vote vote
+             :app/nonce nonce)
+      (failed state (:error result)))))
+
+(defn- acknowledge-reveal [state]
+  (let [verify (fn [commitment value nonce]
+                 (= commitment (str value ":" nonce)))
+        result (voting/reveal (:app/vote state)
+                              :local
+                              (:app/selected-value state)
+                              (:app/nonce state)
+                              verify)]
+    (if-let [vote (:ok result)]
+      (assoc state :app/screen :view.screen/revealed :app/vote vote)
+      (failed state (:error result)))))
+
+(defn- begin-discussion [state]
+  (let [result (voting/begin-discussion (:app/vote state))]
+    (if-let [vote (:ok result)]
+      (assoc state :app/screen :view.screen/discussion :app/vote vote)
+      (failed state (:error result)))))
+
+(defn- reposition [state value]
+  (let [sequence-number (inc (:app/position-sequence state))
+        result (voting/reposition (:app/vote state)
+                                  :local
+                                  value
+                                  sequence-number)]
+    (if-let [vote (:ok result)]
+      (assoc state
+             :app/vote vote
+             :app/position-sequence sequence-number)
+      (failed state (:error result)))))
+
+(defn transition [state event]
+  (case (:event/type event)
+    :event/reset (initial-state)
+    :event/create-room (create-room state)
+    :event/use-catalogue-question (use-catalogue-question state)
+    :event/start-vote (start-vote state)
+    :event/select-vote (assoc state :app/selected-value (:vote/value event))
+    :event/submit-vote (submit-vote state)
+    :event/acknowledge-reveal (acknowledge-reveal state)
+    :event/begin-discussion (begin-discussion state)
+    :event/reposition (reposition state (:vote/value event))
+    state))
 
 (defn start [dependencies]
-  (let [render! (:view/render! dependencies)
-        result (room/create :room/preview :connection.mode/dynamic)]
-    (if-let [created (:ok result)]
-      (render! (presentation/room-created created))
-      (render! (presentation/startup-failed (:error result))))))
+  (let [state (atom (initial-state))
+        render! (:view/render! dependencies)]
+    (letfn [(dispatch! [event]
+              (swap! state transition event)
+              (render! (presentation/view @state dispatch!)))]
+      (render! (presentation/view @state dispatch!))
+      {:application/dispatch! dispatch!
+       :application/state state})))

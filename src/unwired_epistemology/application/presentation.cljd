@@ -1,15 +1,87 @@
 (ns unwired-epistemology.application.presentation)
 
-(defn room-created [room]
-  {:view/screen :view.screen/room
-   :view/title "Unwired Epistemology"
-   :view/heading "P2P Spectrum"
-   :view/status "Architecture scaffold and tested domain core"
-   :view/room-id (:room/id room)
-   :view/connection-mode (:room/connection-mode room)})
+(def likert-labels
+  {1 "Strongly Disagree"
+   2 "Disagree"
+   3 "Slightly Disagree"
+   4 "Neutral"
+   5 "Slightly Agree"
+   6 "Agree"
+   7 "Strongly Agree"})
 
-(defn startup-failed [error]
-  {:view/screen :view.screen/error
-   :view/title "Unwired Epistemology"
-   :view/heading "Unable to start"
-   :view/status (str error)})
+(defn- action [label event]
+  {:action/label label :action/event event})
+
+(defn- spectrum-actions [event-type]
+  (mapv (fn [value]
+          (action (get likert-labels value)
+                  {:event/type event-type :vote/value value}))
+        (range 1 8)))
+
+(defn view [state dispatch!]
+  (let [screen (:app/screen state)
+        base {:view/title "Unwired Epistemology"
+              :view/screen screen
+              :view/dispatch! dispatch!}]
+    (merge
+      base
+      (case screen
+        :view.screen/home
+        {:view/heading "P2P Spectrum"
+         :view/status "Create a room to begin"
+         :view/actions [(action "Create dynamic room"
+                                {:event/type :event/create-room})]}
+
+        :view.screen/room
+        {:view/heading "Anonymous Owl's room"
+         :view/status "Choose the first question"
+         :view/details ["Mode: Dynamic Auto-Discovery"
+                        "Admission: Creator only"
+                        "Participants: Anonymous Owl"]
+         :view/actions [(action "Use catalogue question"
+                                {:event/type :event/use-catalogue-question})]}
+
+        :view.screen/question-ready
+        {:view/heading (:question/text (:app/question state))
+         :view/status "The question is approved"
+         :view/details ["Approved by Anonymous Owl"]
+         :view/actions [(action "Start voting"
+                                {:event/type :event/start-vote})]}
+
+        :view.screen/voting
+        {:view/heading (:question/text (:app/question state))
+         :view/status (if (:app/selected-value state)
+                        (str "Selected: "
+                             (get likert-labels (:app/selected-value state)))
+                        "Select your private position")
+         :view/actions (cond-> (spectrum-actions :event/select-vote)
+                         (:app/selected-value state)
+                         (conj (action "Submit private vote"
+                                       {:event/type :event/submit-vote})))}
+
+        :view.screen/reveal-ready
+        {:view/heading "The votes are ready to be revealed."
+         :view/status "The spectrum remains locked until you confirm"
+         :view/actions [(action "OK"
+                                {:event/type :event/acknowledge-reveal})]}
+
+        :view.screen/revealed
+        {:view/heading (:question/text (:app/question state))
+         :view/status (str "Anonymous Owl: "
+                           (get likert-labels
+                                (get-in state [:app/vote :vote/positions :local])))
+         :view/actions [(action "Begin discussion"
+                                {:event/type :event/begin-discussion})]}
+
+        :view.screen/discussion
+        {:view/heading "Discussion spectrum"
+         :view/status (str "Anonymous Owl: "
+                           (get likert-labels
+                                (get-in state [:app/vote :vote/positions :local])))
+         :view/details ["Move at any time as your view changes"]
+         :view/actions (spectrum-actions :event/reposition)}
+
+        {:view/heading "Unable to continue"
+         :view/status (str (:app/error state))
+         :view/actions [(action "Return home"
+                                {:event/type :event/reset})]}))))
