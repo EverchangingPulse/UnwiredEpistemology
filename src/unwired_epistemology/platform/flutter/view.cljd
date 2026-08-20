@@ -1,5 +1,7 @@
 (ns unwired-epistemology.platform.flutter.view
   (:require ["package:flutter/material.dart" :as m]
+            ["package:flutter/painting.dart" :as painting]
+            ["package:flutter/rendering.dart" :as rendering]
             [cljd.flutter :as f]))
 
 (defn render! [model]
@@ -15,10 +17,10 @@
         (m/Center
           .child
           (m/Padding
-            .padding (m/EdgeInsets/all 24.0)
+            .padding (painting/EdgeInsets/all 24.0)
             .child
             (m/Column
-              .mainAxisSize m/MainAxisSize/min
+              .mainAxisSize rendering/MainAxisSize/min
               .children
               [(m/Text (:view/heading model)
                        .style (m/TextStyle .fontSize 28.0))
