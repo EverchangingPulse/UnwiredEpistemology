@@ -1,6 +1,7 @@
 (ns unwired-epistemology.application.runtime
   (:require [unwired-epistemology.application.presentation :as presentation]
             [unwired-epistemology.application.identity :as identity]
+            [unwired-epistemology.application.peer-observer :as peer-observer]
             [unwired-epistemology.domain.questions :as questions]
             [unwired-epistemology.domain.room :as room]
             [unwired-epistemology.domain.voting :as voting]))
@@ -35,6 +36,43 @@
   (let [result (room/set-admission-mode (:app/room state)
                                         (:app/local-member-id state)
                                         mode)]
+    (if-let [updated (:ok result)]
+      (assoc state :app/room updated)
+      (failed state (:error result)))))
+
+(defn- peer-found [state event]
+  (assoc-in state [:app/discovered-peers (:peer/id event)]
+            {:peer/id (:peer/id event)
+             :peer/nickname (:peer/nickname event)
+             :peer/transports (:peer/transports event)
+             :peer/status :peer.status/reachable}))
+
+(defn- peer-lost [state event]
+  (assoc-in state [:app/discovered-peers (:peer/id event) :peer/status]
+            :peer.status/unreachable))
+
+(defn- join-requested [state event]
+  (let [request {:member/id (:peer/id event)
+                 :member/nickname (:peer/nickname event)
+                 :member/public-key (:peer/public-key event)}
+        result (room/request-join (:app/room state) request)]
+    (if-let [updated (:ok result)]
+      (assoc state :app/room updated)
+      (failed state (:error result)))))
+
+(defn- decide-join [state event decision]
+  (let [result (room/decide-join (:app/room state)
+                                 (:app/local-member-id state)
+                                 (:member/id event)
+                                 decision)]
+    (if-let [updated (:ok result)]
+      (assoc state :app/room updated)
+      (failed state (:error result)))))
+
+(defn- remove-member [state event]
+  (let [result (room/remove-member (:app/room state)
+                                   (:app/local-member-id state)
+                                   (:member/id event))]
     (if-let [updated (:ok result)]
       (assoc state :app/room updated)
       (failed state (:error result)))))
@@ -133,6 +171,12 @@
     :event/create-room (create-room state dependencies event)
     :event/set-admission-mode (set-admission-mode
                                 state (:room/admission-mode event))
+    :event/peer-found (peer-found state event)
+    :event/peer-lost (peer-lost state event)
+    :event/join-requested (join-requested state event)
+    :event/approve-join (decide-join state event :join.decision/approve)
+    :event/reject-join (decide-join state event :join.decision/reject)
+    :event/remove-member (remove-member state event)
     :event/use-catalogue-question (use-catalogue-question state)
     :event/question-draft-changed (assoc state :app/question-draft
                                          (:question/text event))
@@ -153,5 +197,8 @@
               (swap! state transition event dependencies)
               (render! (presentation/view @state dispatch!)))]
       (render! (presentation/view @state dispatch!))
-      {:application/dispatch! dispatch!
-       :application/state state})))
+      (let [unsubscribe (when (:peers/subscribe! dependencies)
+                          (peer-observer/start! dependencies dispatch!))]
+        {:application/dispatch! dispatch!
+         :application/state state
+         :application/stop! (or unsubscribe (fn [] nil))}))))

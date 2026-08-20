@@ -34,6 +34,8 @@
         nickname (or (get-in state [:app/room :room/members local-id :member/nickname])
                      "Anonymous participant")
         position (get-in state [:app/vote :vote/positions local-id])
+        pending (vals (get-in state [:app/room :room/pending-joins]))
+        discovered (vals (:app/discovered-peers state))
         base {:view/title "Unwired Epistemology"
               :view/screen screen
               :view/dispatch! dispatch!}]
@@ -61,7 +63,9 @@
                         (str "Admission: "
                              (get admission-labels
                                   (get-in state [:app/room :room/admission-mode])))
-                        (str "Participants: " nickname)]
+                        (str "Participants: " nickname)
+                        (str "Nearby/known peers: " (count discovered))
+                        (str "Pending join requests: " (count pending))]
          :view/inputs [{:input/label "Write a claim for room approval"
                         :input/value (:app/question-draft state)
                         :input/event-type :event/question-draft-changed
@@ -73,7 +77,8 @@
                          (conj (action "Submit claim for approval"
                                        {:event/type :event/submit-custom-question}))
                          true
-                         (into [(action "Admission: creator only"
+                         (into (concat
+                                [(action "Admission: creator only"
                                         {:event/type :event/set-admission-mode
                                          :room/admission-mode :admission.mode/creator-only})
                                 (action "Admission: creator + moderators"
@@ -81,7 +86,16 @@
                                          :room/admission-mode :admission.mode/moderators})
                                 (action "Admission: any member"
                                         {:event/type :event/set-admission-mode
-                                         :room/admission-mode :admission.mode/any-member})]))}
+                                         :room/admission-mode :admission.mode/any-member})]
+                                (mapcat
+                                  (fn [request]
+                                    [(action (str "Approve " (:member/nickname request))
+                                             {:event/type :event/approve-join
+                                              :member/id (:member/id request)})
+                                     (action (str "Reject " (:member/nickname request))
+                                             {:event/type :event/reject-join
+                                              :member/id (:member/id request)})])
+                                  pending))))}
 
         :view.screen/question-pending
         {:view/heading (:question/text (:app/question state))

@@ -80,3 +80,31 @@
     (is (= :admission.mode/any-member
            (get-in @(:application/state running)
                    [:app/room :room/admission-mode])))))
+
+(deftest observed-peer-request-is-visible-and-can-be-approved
+  (let [observer (atom nil)
+        rendered (atom nil)
+        ports (assoc (dependencies #(reset! rendered %))
+                     :peers/subscribe! (fn [observe!]
+                                         (reset! observer observe!)
+                                         (fn [] (reset! observer nil))))
+        running (application/start ports)
+        dispatch! (:application/dispatch! running)]
+    (dispatch! {:event/type :event/create-room})
+    (@observer {:event/type :event/join-requested
+                :message/id :message/one
+                :message/sequence 1
+                :peer/id :peer/remote
+                :peer/nickname "Curious Fox"
+                :peer/public-key "remote-key"})
+    (is (= :join.status/pending
+           (get-in @(:application/state running)
+                   [:app/room :room/pending-joins
+                    :peer/remote :join/status])))
+    (dispatch! {:event/type :event/approve-join :member/id :peer/remote})
+    (is (= :member.status/active
+           (get-in @(:application/state running)
+                   [:app/room :room/members
+                    :peer/remote :member/status])))
+    ((:application/stop! running))
+    (is (nil? @observer))))
