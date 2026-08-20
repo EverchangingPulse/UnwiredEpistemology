@@ -38,6 +38,7 @@ Install Flutter stable, Java 17, and Clojure CLI, then run:
 
 ```bash
 clojure -M:cljd init
+dart pub add --dev test
 clojure -M:cljd compile
 flutter build apk --debug
 ```
@@ -49,6 +50,7 @@ The APK is written beneath `build/app/outputs/flutter-apk/`.
 After initialization:
 
 ```bash
+dart pub add --dev test
 clojure -M:cljd compile \
   unwired-epistemology.domain.likert-test \
   unwired-epistemology.domain.questions-test \

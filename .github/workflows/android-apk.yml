@@ -29,6 +29,8 @@ jobs:
           cache: true
       - name: Initialize Flutter project
         run: clojure -M:cljd init
+      - name: Install test runtime
+        run: dart pub add --dev test
       - name: Compile domain tests
         run: >-
           clojure -M:cljd compile
