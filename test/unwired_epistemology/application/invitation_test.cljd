@@ -1,0 +1,31 @@
+(ns unwired-epistemology.application.invitation-test
+  (:require [clojure.test :refer [deftest is]]
+            [unwired-epistemology.application.invitation :as application]))
+
+(defn ports [decoded]
+  {:crypto/public-key (constantly "public-key")
+   :crypto/nonce (constantly "nonce")
+   :invitation/encode pr-str
+   :invitation/decode (constantly decoded)
+   :invitation/url #(str "unwired://join?payload=" (pr-str %))})
+
+(deftest creates-long-offer-for-text-link-and-qr-renderers
+  (let [room {:room/id :room/one
+              :room/creator-id :peer/creator
+              :room/connection-mode :connection.mode/dynamic}
+        result (application/create-join-offer (ports nil) room 100 50)]
+    (is (= 150 (get-in result [:invitation/payload :invitation/expires-at])))
+    (is (seq (:invitation/text result)))
+    (is (seq (:invitation/url result)))))
+
+(deftest rejects-expired-offer-before-creating-response
+  (let [offer {:invitation/version 1
+               :invitation/kind :invitation.kind/join-offer
+               :room/id :room/one
+               :room/creator-id :peer/creator
+               :peer/public-key "key"
+               :invitation/nonce "nonce"
+               :invitation/expires-at 100}]
+    (is (= :invitation.error/invalid-or-expired-offer
+           (:error (application/accept-join-offer
+                     (ports offer) "encoded" 100 :peer/joiner))))))

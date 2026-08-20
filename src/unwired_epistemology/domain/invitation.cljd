@@ -1,0 +1,43 @@
+(ns unwired-epistemology.domain.invitation)
+
+(def protocol-version 1)
+
+(def invitation-kinds
+  #{:invitation.kind/join-offer :invitation.kind/join-response})
+
+(defn join-offer [room-id creator-id connection-mode public-key nonce expires-at]
+  {:invitation/version protocol-version
+   :invitation/kind :invitation.kind/join-offer
+   :room/id room-id
+   :room/creator-id creator-id
+   :room/connection-mode connection-mode
+   :peer/public-key public-key
+   :invitation/nonce nonce
+   :invitation/expires-at expires-at})
+
+(defn join-response [offer peer-id public-key response-nonce]
+  {:invitation/version protocol-version
+   :invitation/kind :invitation.kind/join-response
+   :room/id (:room/id offer)
+   :peer/id peer-id
+   :peer/public-key public-key
+   :invitation/offer-nonce (:invitation/nonce offer)
+   :invitation/nonce response-nonce})
+
+(defn valid-offer? [offer now]
+  (and (= protocol-version (:invitation/version offer))
+       (= :invitation.kind/join-offer (:invitation/kind offer))
+       (some? (:room/id offer))
+       (some? (:room/creator-id offer))
+       (seq (:peer/public-key offer))
+       (seq (:invitation/nonce offer))
+       (> (:invitation/expires-at offer) now)))
+
+(defn valid-response? [offer response]
+  (and (= protocol-version (:invitation/version response))
+       (= :invitation.kind/join-response (:invitation/kind response))
+       (= (:room/id offer) (:room/id response))
+       (= (:invitation/nonce offer) (:invitation/offer-nonce response))
+       (some? (:peer/id response))
+       (seq (:peer/public-key response))
+       (seq (:invitation/nonce response))))

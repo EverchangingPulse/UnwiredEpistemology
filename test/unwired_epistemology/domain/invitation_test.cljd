@@ -1,0 +1,20 @@
+(ns unwired-epistemology.domain.invitation-test
+  (:require [clojure.test :refer [deftest is]]
+            [unwired-epistemology.domain.invitation :as invitation]))
+
+(deftest offer-is-valid-only-before-expiry
+  (let [offer (invitation/join-offer :room/one :peer/creator
+                                     :connection.mode/dynamic
+                                     "creator-key" "offer-nonce" 200)]
+    (is (invitation/valid-offer? offer 199))
+    (is (not (invitation/valid-offer? offer 200)))))
+
+(deftest response-is-bound-to-room-and-offer-nonce
+  (let [offer (invitation/join-offer :room/one :peer/creator
+                                     :connection.mode/dynamic
+                                     "creator-key" "offer-nonce" 200)
+        response (invitation/join-response offer :peer/joiner
+                                           "joiner-key" "response-nonce")]
+    (is (invitation/valid-response? offer response))
+    (is (not (invitation/valid-response?
+               offer (assoc response :invitation/offer-nonce "other"))))))

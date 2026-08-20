@@ -35,3 +35,19 @@
     (is (= :view.screen/room (:view/screen @rendered)))
     (is (= (:view/dispatch! @rendered)
            (:application/dispatch! running)))))
+
+(deftest room-cycle-uses-the-generated-member-identity
+  (let [rendered (atom nil)
+        ports (assoc (dependencies #(reset! rendered %))
+                     :identity/new-member-id (constantly :peer/generated))
+        running (application/start ports)
+        dispatch! (:application/dispatch! running)]
+    (dispatch! {:event/type :event/create-room})
+    (dispatch! {:event/type :event/use-catalogue-question})
+    (dispatch! {:event/type :event/start-vote})
+    (dispatch! {:event/type :event/select-vote :vote/value 5})
+    (dispatch! {:event/type :event/submit-vote})
+    (is (= :view.screen/reveal-ready (:view/screen @rendered)))
+    (is (contains? (get-in @(:application/state running)
+                           [:app/vote :vote/commitments])
+                   :peer/generated))))

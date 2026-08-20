@@ -23,17 +23,20 @@
                             creator
                             :admission.mode/creator-only)]
     (if-let [created (:ok result)]
-      (assoc state :app/screen :view.screen/room :app/room created)
+      (assoc state
+             :app/screen :view.screen/room
+             :app/room created
+             :app/local-member-id (:member/id creator))
       (failed state (:error result)))))
 
 (defn- use-catalogue-question [state]
   (let [electorate (room/active-members (:app/room state))
         submitted (questions/submit (:question/id catalogue-question)
                                     (:question/text catalogue-question)
-                                    :local
+                                    (:app/local-member-id state)
                                     electorate)
         approved (when-let [question (:ok submitted)]
-                   (questions/approve question :local))]
+                   (questions/approve question (:app/local-member-id state)))]
     (if-let [question (:ok approved)]
       (assoc state
              :app/screen :view.screen/question-ready
@@ -50,7 +53,9 @@
   (let [value (:app/selected-value state)
         nonce (str "local-" value)
         commitment (str value ":" nonce)
-        result (voting/commit (:app/vote state) :local commitment)]
+        result (voting/commit (:app/vote state)
+                              (:app/local-member-id state)
+                              commitment)]
     (if-let [vote (:ok result)]
       (assoc state
              :app/screen :view.screen/reveal-ready
@@ -62,7 +67,7 @@
   (let [verify (fn [commitment value nonce]
                  (= commitment (str value ":" nonce)))
         result (voting/reveal (:app/vote state)
-                              :local
+                              (:app/local-member-id state)
                               (:app/selected-value state)
                               (:app/nonce state)
                               verify)]
@@ -79,7 +84,7 @@
 (defn- reposition [state value]
   (let [sequence-number (inc (:app/position-sequence state))
         result (voting/reposition (:app/vote state)
-                                  :local
+                                  (:app/local-member-id state)
                                   value
                                   sequence-number)]
     (if-let [vote (:ok result)]
