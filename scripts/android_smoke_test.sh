@@ -8,10 +8,15 @@ test -x "${aapt_path}"
 app_id="$(${aapt_path} dump badging "${app_apk}" \
   | sed -n "s/package: name='\([^']*\)'.*/\1/p")"
 test -n "${app_id}"
+launch_activity="$(${aapt_path} dump badging "${app_apk}" \
+  | sed -n "s/launchable-activity: name='\([^']*\)'.*/\1/p")"
+test -n "${launch_activity}"
 
 adb install -r "${app_apk}"
 adb logcat -c
-adb shell monkey -p "${app_id}" -c android.intent.category.LAUNCHER 1
+adb shell input keyevent KEYCODE_WAKEUP
+adb shell wm dismiss-keyguard
+adb shell am start -W -n "${app_id}/${launch_activity}"
 
 app_pid=""
 for attempt in 1 2 3 4 5 6 7 8; do
@@ -24,16 +29,30 @@ if test -z "${app_pid}"; then
   exit 1
 fi
 
-sleep 4
-adb shell uiautomator dump /sdcard/window.xml
-adb pull /sdcard/window.xml build/window.xml
-grep -q 'P2P Spectrum' build/window.xml
+dump_contains() {
+  local remote_path="$1"
+  local local_path="$2"
+  local expected="$3"
+  for attempt in 1 2 3 4 5 6 7 8; do
+    adb shell uiautomator dump "${remote_path}" >/dev/null 2>&1 || true
+    if adb pull "${remote_path}" "${local_path}" >/dev/null 2>&1 \
+      && grep -q "${expected}" "${local_path}"; then
+      return 0
+    fi
+    sleep 2
+  done
+  adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' || true
+  adb logcat --pid="${app_pid}" -d || true
+  test -f "${local_path}" && sed -n '1,40p' "${local_path}" || true
+  return 1
+}
+
+dump_contains /sdcard/window.xml build/window.xml 'P2P Spectrum'
 
 # The first room-mode button is centered in the upper half on the test AVD.
 adb shell input tap 160 230
 sleep 2
-adb shell uiautomator dump /sdcard/room-window.xml
-adb pull /sdcard/room-window.xml build/room-window.xml
-grep -q 'Choose the first question' build/room-window.xml
+dump_contains /sdcard/room-window.xml build/room-window.xml \
+  'Choose the first question'
 
 ! adb logcat --pid="${app_pid}" -d | grep -q 'FATAL EXCEPTION'
