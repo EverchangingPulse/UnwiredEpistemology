@@ -17,10 +17,10 @@
         (m/Center
           .child
           (m/Padding
-            .padding (painting/EdgeInsets/all 24.0)
+            .padding (painting.EdgeInsets/all 24.0)
             .child
             (m/Column
-              .mainAxisSize rendering/MainAxisSize/min
+              .mainAxisSize rendering.MainAxisSize/min
               .children
               [(m/Text (:view/heading model)
                        .style (m/TextStyle .fontSize 28.0))
