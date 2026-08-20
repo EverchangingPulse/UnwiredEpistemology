@@ -79,6 +79,21 @@
   (or (= (:room/creator-id room) member-id)
       (contains? (:room/moderator-ids room) member-id)))
 
+(defn set-admission-mode [room actor-id admission-mode]
+  (cond
+    (not= (:room/creator-id room) actor-id)
+    {:error :room.error/not-creator}
+
+    (not (contains? admission-modes admission-mode))
+    {:error :room.error/invalid-admission-mode}
+
+    :else
+    {:ok (-> room
+             (assoc :room/admission-mode admission-mode)
+             (audit {:audit/type :audit/admission-mode-changed
+                     :actor/id actor-id
+                     :room/admission-mode admission-mode}))}))
+
 (defn admission-approver? [room member-id]
   (case (:room/admission-mode room)
     :admission.mode/creator-only (= (:room/creator-id room) member-id)

@@ -9,6 +9,16 @@
    6 "Agree"
    7 "Strongly Agree"})
 
+(def connection-labels
+  {:connection.mode/strictly-local "Strictly Local"
+   :connection.mode/strictly-remote "Strictly Remote"
+   :connection.mode/dynamic "Dynamic Auto-Discovery"})
+
+(def admission-labels
+  {:admission.mode/creator-only "Creator only"
+   :admission.mode/moderators "Creator and moderators"
+   :admission.mode/any-member "Any active member"})
+
 (defn- action [label event]
   {:action/label label :action/event event})
 
@@ -32,15 +42,25 @@
       (case screen
         :view.screen/home
         {:view/heading "P2P Spectrum"
-         :view/status "Create a room to begin"
-         :view/actions [(action "Create dynamic room"
-                                {:event/type :event/create-room})]}
+         :view/status "Choose how peers may connect"
+         :view/actions
+         (mapv (fn [[mode label]]
+                 (action (str "Create " label " room")
+                         {:event/type :event/create-room
+                          :room/connection-mode mode}))
+               [[:connection.mode/dynamic "Dynamic"]
+                [:connection.mode/strictly-local "Local-only"]
+                [:connection.mode/strictly-remote "Remote-only"]])}
 
         :view.screen/room
         {:view/heading (str nickname "'s room")
          :view/status "Choose the first question"
-         :view/details ["Mode: Dynamic Auto-Discovery"
-                        "Admission: Creator only"
+         :view/details [(str "Mode: "
+                             (get connection-labels
+                                  (get-in state [:app/room :room/connection-mode])))
+                        (str "Admission: "
+                             (get admission-labels
+                                  (get-in state [:app/room :room/admission-mode])))
                         (str "Participants: " nickname)]
          :view/inputs [{:input/label "Write a claim for room approval"
                         :input/value (:app/question-draft state)
@@ -51,7 +71,17 @@
                                   {:event/type :event/use-catalogue-question})]
                          (seq (:app/question-draft state))
                          (conj (action "Submit claim for approval"
-                                       {:event/type :event/submit-custom-question})))}
+                                       {:event/type :event/submit-custom-question}))
+                         true
+                         (into [(action "Admission: creator only"
+                                        {:event/type :event/set-admission-mode
+                                         :room/admission-mode :admission.mode/creator-only})
+                                (action "Admission: creator + moderators"
+                                        {:event/type :event/set-admission-mode
+                                         :room/admission-mode :admission.mode/moderators})
+                                (action "Admission: any member"
+                                        {:event/type :event/set-admission-mode
+                                         :room/admission-mode :admission.mode/any-member})]))}
 
         :view.screen/question-pending
         {:view/heading (:question/text (:app/question state))

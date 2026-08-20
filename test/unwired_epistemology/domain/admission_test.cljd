@@ -83,3 +83,13 @@
          (:error (room/remove-member (created :admission.mode/moderators)
                                      :creator
                                      :creator)))))
+
+(deftest only-creator-can-change-admission-policy
+  (let [state (created :admission.mode/creator-only)]
+    (is (= :admission.mode/any-member
+           (:room/admission-mode
+             (:ok (room/set-admission-mode state :creator
+                                           :admission.mode/any-member)))))
+    (is (= :room.error/not-creator
+           (:error (room/set-admission-mode state :someone-else
+                                            :admission.mode/moderators))))))

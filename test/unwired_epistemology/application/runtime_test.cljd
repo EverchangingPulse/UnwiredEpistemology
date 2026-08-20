@@ -66,3 +66,17 @@
     (is (= :question.status/approved
            (get-in @(:application/state running)
                    [:app/question :question/status])))))
+
+(deftest creator-selects-connection-and-admission-modes
+  (let [running (application/start (dependencies (fn [_] nil)))
+        dispatch! (:application/dispatch! running)]
+    (dispatch! {:event/type :event/create-room
+                :room/connection-mode :connection.mode/strictly-local})
+    (dispatch! {:event/type :event/set-admission-mode
+                :room/admission-mode :admission.mode/any-member})
+    (is (= :connection.mode/strictly-local
+           (get-in @(:application/state running)
+                   [:app/room :room/connection-mode])))
+    (is (= :admission.mode/any-member
+           (get-in @(:application/state running)
+                   [:app/room :room/admission-mode])))))

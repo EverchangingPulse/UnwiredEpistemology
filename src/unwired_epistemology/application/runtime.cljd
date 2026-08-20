@@ -15,18 +15,28 @@
 (defn- failed [state error]
   (assoc state :app/screen :view.screen/error :app/error error))
 
-(defn- create-room [state dependencies]
+(defn- create-room [state dependencies event]
   (let [room-id :room/local-preview
         creator (:ok (identity/for-room dependencies room-id))
         result (room/create :room/local-preview
-                            :connection.mode/dynamic
+                            (or (:room/connection-mode event)
+                                :connection.mode/dynamic)
                             creator
-                            :admission.mode/creator-only)]
+                            (or (:room/admission-mode event)
+                                :admission.mode/creator-only))]
     (if-let [created (:ok result)]
       (assoc state
              :app/screen :view.screen/room
              :app/room created
              :app/local-member-id (:member/id creator))
+      (failed state (:error result)))))
+
+(defn- set-admission-mode [state mode]
+  (let [result (room/set-admission-mode (:app/room state)
+                                        (:app/local-member-id state)
+                                        mode)]
+    (if-let [updated (:ok result)]
+      (assoc state :app/room updated)
       (failed state (:error result)))))
 
 (defn- use-catalogue-question [state]
@@ -120,7 +130,9 @@
   ([state event dependencies]
   (case (:event/type event)
     :event/reset (initial-state)
-    :event/create-room (create-room state dependencies)
+    :event/create-room (create-room state dependencies event)
+    :event/set-admission-mode (set-admission-mode
+                                state (:room/admission-mode event))
     :event/use-catalogue-question (use-catalogue-question state)
     :event/question-draft-changed (assoc state :app/question-draft
                                          (:question/text event))
