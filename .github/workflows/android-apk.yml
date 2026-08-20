@@ -32,7 +32,7 @@ jobs:
       - name: Install test runtime
         run: |
           dart pub add --dev test
-          flutter pub add flutter_secure_storage:^11.0.0
+          flutter pub add flutter_secure_storage:^10.3.1
       - name: Compile domain tests
         run: >-
           clojure -M:cljd compile

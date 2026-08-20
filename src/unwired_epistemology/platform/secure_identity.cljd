@@ -27,7 +27,7 @@
      :identity/save!
      (fn [key identity]
        (swap! cache assoc key identity)
-       (.write storage :key key :value (encode-identity identity)))
+       (.write storage .key key .value (encode-identity identity)))
      :identity/new-member-id
      #(str "peer-" (.nextInt entropy 2147483647)
            "-" (.nextInt entropy 2147483647))
