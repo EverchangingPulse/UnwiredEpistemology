@@ -1,0 +1,85 @@
+(ns unwired-epistemology.domain.admission-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [unwired-epistemology.domain.room :as room]))
+
+(def creator
+  {:member/id :creator
+   :member/nickname "Anonymous Owl"})
+
+(def candidate
+  {:member/id :candidate
+   :member/nickname "Pixel Fox"
+   :member/public-key "candidate-key"})
+
+(defn created [admission-mode]
+  (:ok (room/create :room-1
+                    :connection.mode/dynamic
+                    creator
+                    admission-mode)))
+
+(defn requested [admission-mode]
+  (:ok (room/request-join (created admission-mode) candidate)))
+
+(deftest invitation-creates-pending-request
+  (let [state (requested :admission.mode/creator-only)]
+    (is (nil? (get-in state [:room/members :candidate])))
+    (is (= :join.status/pending
+           (get-in state [:room/pending-joins :candidate :join/status])))))
+
+(deftest creator-only-mode-rejects-other-approvers
+  (let [state (requested :admission.mode/creator-only)]
+    (is (= :room.error/not-admission-approver
+           (:error (room/decide-join state
+                                     :candidate
+                                     :candidate
+                                     :join.decision/approve))))
+    (is (contains? (:room/members
+                     (:ok (room/decide-join state
+                                            :creator
+                                            :candidate
+                                            :join.decision/approve)))
+                   :candidate))))
+
+(deftest delegated-moderator-can-admit-and-remove
+  (let [room-with-member (:ok (room/decide-join
+                                (requested :admission.mode/moderators)
+                                :creator
+                                :candidate
+                                :join.decision/approve))
+        delegated (:ok (room/set-moderator room-with-member
+                                           :creator
+                                           :candidate
+                                           true))
+        second-request (:ok (room/request-join delegated
+                                               {:member/id :second
+                                                :member/nickname "Quiet Lynx"}))
+        admitted (:ok (room/decide-join second-request
+                                        :candidate
+                                        :second
+                                        :join.decision/approve))
+        removed (:ok (room/remove-member admitted :candidate :second))]
+    (is (contains? (:room/members admitted) :second))
+    (is (not (contains? (:room/members removed) :second)))
+    (is (contains? (:room/removed-member-ids removed) :second))))
+
+(deftest any-active-member-can-admit
+  (let [first-member (:ok (room/decide-join
+                            (requested :admission.mode/any-member)
+                            :creator
+                            :candidate
+                            :join.decision/approve))
+        second-request (:ok (room/request-join first-member
+                                               {:member/id :second
+                                                :member/nickname "Quiet Lynx"}))]
+    (is (contains? (:room/members
+                     (:ok (room/decide-join second-request
+                                            :candidate
+                                            :second
+                                            :join.decision/approve)))
+                   :second))))
+
+(deftest creator-cannot-be-removed
+  (is (= :room.error/creator-cannot-be-removed
+         (:error (room/remove-member (created :admission.mode/moderators)
+                                     :creator
+                                     :creator)))))

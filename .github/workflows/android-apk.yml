@@ -34,6 +34,7 @@ jobs:
       - name: Compile domain tests
         run: >-
           clojure -M:cljd compile
+          unwired-epistemology.domain.admission-test
           unwired-epistemology.domain.likert-test
           unwired-epistemology.domain.questions-test
           unwired-epistemology.domain.voting-test

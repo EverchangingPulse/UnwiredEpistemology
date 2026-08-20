@@ -52,6 +52,7 @@ After initialization:
 ```bash
 dart pub add --dev test
 clojure -M:cljd compile \
+  unwired-epistemology.domain.admission-test \
   unwired-epistemology.domain.likert-test \
   unwired-epistemology.domain.questions-test \
   unwired-epistemology.domain.voting-test \

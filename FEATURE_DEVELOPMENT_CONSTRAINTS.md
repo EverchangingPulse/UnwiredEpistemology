@@ -125,7 +125,22 @@ At minimum, the replicated room state MUST represent:
 - post-reveal positions;
 - empathy-pair state and private message delivery acknowledgements.
 
-### 6.1 Membership definition
+### 6.1 Admission control
+
+- A remote invitation MUST carry the complete connection offer and routing material required to deliver a join request without a discovery or signaling service.
+- Remote invitation data MAY be long. Links and QR codes MUST preserve it losslessly. A short code MUST NOT claim remote reachability unless it contains or resolves the required connection data without central infrastructure.
+- Joining from an invitation MUST create a pending request. Invitation possession alone MUST NOT activate membership.
+- Room creation MUST select one of these admission modes:
+  - `creator-only`: only the creator may approve or reject join requests and remove participants;
+  - `moderators`: the creator and explicitly delegated moderators may approve, reject, or remove participants;
+  - `any-member`: any active participant may approve or reject join requests, while the creator and delegated moderators retain removal authority.
+- The room creator MUST be recorded as a room-scoped identity and MUST retain authority to grant or revoke moderator status.
+- Moderator authority MUST be room-scoped, replicated, versioned, and auditable.
+- The creator MUST NOT be removable through ordinary participant-removal commands.
+- Every join request, approval, rejection, moderator change, and removal MUST produce a deterministic audit event without exposing cross-room identity.
+- A removed identity MUST NOT rejoin from an old invitation without a new explicit approval.
+
+### 6.2 Membership definition
 
 - The protocol MUST define when a peer becomes active, temporarily disconnected, departed, or evicted.
 - The active-node set used by approval and reveal barriers MUST be based on a deterministic membership snapshot or version.
