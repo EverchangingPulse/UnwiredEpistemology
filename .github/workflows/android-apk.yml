@@ -47,6 +47,7 @@ jobs:
           unwired-epistemology.application.room-test
           unwired-epistemology.application.identity-test
           unwired-epistemology.application.invitation-test
+          unwired-epistemology.application.bootstrap-test
           unwired-epistemology.platform.secure-identity-test
           unwired-epistemology.application.peer-observer-test
           unwired-epistemology.application.runtime-test

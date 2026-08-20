@@ -3,6 +3,9 @@
             ["package:flutter/painting.dart" :as painting]
             [cljd.flutter :as f]))
 
+(defn initialize! []
+  (m.WidgetsFlutterBinding/ensureInitialized))
+
 (defn- detail-widget [detail]
   (m/Padding
     .padding (painting.EdgeInsets/only .bottom 6.0)

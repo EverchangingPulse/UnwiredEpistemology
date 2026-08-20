@@ -1,0 +1,21 @@
+(ns unwired-epistemology.application.bootstrap-test
+  (:require [clojure.test :refer [deftest is]]
+            [unwired-epistemology.application.bootstrap :as bootstrap]))
+
+(deftest graphical-interface-is-started-before-secure-storage
+  (let [events (atom [])
+        ports {:view/initialize! #(swap! events conj :view/initialized)
+               :view/render! #(swap! events conj (:view/screen %))
+               :identity/ports!
+               (fn []
+                 (swap! events conj :identity/loading)
+                 {:identity/load (constantly nil)
+                  :identity/save! (fn [_ _] nil)
+                  :identity/new-member-id (constantly :local)
+                  :identity/random-index (constantly 0)})}]
+    (await (bootstrap/start ports))
+    (is (= [:view/initialized
+            :view.screen/loading
+            :identity/loading
+            :view.screen/home]
+           @events))))

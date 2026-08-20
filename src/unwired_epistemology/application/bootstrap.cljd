@@ -1,0 +1,34 @@
+(ns unwired-epistemology.application.bootstrap
+  (:require [unwired-epistemology.application.runtime :as runtime]))
+
+(defn loading-view []
+  {:view/title "Unwired Epistemology"
+   :view/screen :view.screen/loading
+   :view/heading "Starting Unwired Epistemology"
+   :view/status "Opening encrypted local identity storage…"
+   :view/details []
+   :view/inputs []
+   :view/actions []
+   :view/dispatch! (fn [_] nil)})
+
+(defn error-view [error]
+  {:view/title "Unwired Epistemology"
+   :view/screen :view.screen/startup-error
+   :view/heading "The app could not start"
+   :view/status (str error)
+   :view/details ["Close and reopen the app. No room data was sent."]
+   :view/inputs []
+   :view/actions []
+   :view/dispatch! (fn [_] nil)})
+
+(defn ^:async start [dependencies]
+  (let [initialize! (:view/initialize! dependencies)
+        render! (:view/render! dependencies)]
+    (initialize!)
+    (render! (loading-view))
+    (try
+      (let [identity-ports (await ((:identity/ports! dependencies)))]
+        (runtime/start (merge dependencies identity-ports)))
+      (catch dynamic error
+        (render! (error-view error))
+        {:application/startup-error error}))))

@@ -1,8 +1,10 @@
 (ns unwired-epistemology.main
-  (:require [unwired-epistemology.application.runtime :as application]
+  (:require [unwired-epistemology.application.bootstrap :as application]
             [unwired-epistemology.platform.secure-identity :as identity]
             [unwired-epistemology.platform.flutter.view :as view]))
 
 (defn ^:async main []
-  (let [identity-ports (await (identity/ports))]
-    (application/start (assoc identity-ports :view/render! view/render!))))
+  (await
+    (application/start {:view/initialize! view/initialize!
+                        :view/render! view/render!
+                        :identity/ports! identity/ports})))
