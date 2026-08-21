@@ -11,8 +11,13 @@
   (nearby/stop!)
   (webrtc/stop!))
 
+(defn send! [text]
+  (nearby/send! text)
+  (webrtc/send! text))
+
 (defn ports []
   (merge (nearby/ports)
          (webrtc/ports)
          {:peers/subscribe! subscribe!
+          :transports/send! send!
           :transports/stop! stop!}))

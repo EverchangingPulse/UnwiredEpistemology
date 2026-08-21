@@ -7,6 +7,7 @@
 (def listeners (atom #{}))
 (def sequences (atom {}))
 (def endpoint-names (atom {}))
+(def connected-endpoints (atom #{}))
 (def join-payload (atom nil))
 (def local-name (atom "Anonymous participant"))
 (def nearby-client (nearby/Nearby))
@@ -52,12 +53,20 @@
   (accept-connection! endpoint-id))
 
 (defn- disconnected! [endpoint-id]
+  (swap! connected-endpoints disj endpoint-id)
   (emit! endpoint-id {:event/type :event/peer-lost}))
 
 (defn- connected! [endpoint-id status]
-  (when (and (= status nearby/Status.CONNECTED) @join-payload)
-    (.sendBytesPayload nearby-client endpoint-id
-                       (convert/utf8.encode @join-payload))))
+  (when (= status nearby/Status.CONNECTED)
+    (swap! connected-endpoints conj endpoint-id)
+    (when @join-payload
+      (.sendBytesPayload nearby-client endpoint-id
+                         (convert/utf8.encode @join-payload)))))
+
+(defn send! [text]
+  (let [bytes (convert/utf8.encode text)]
+    (doseq [endpoint-id @connected-endpoints]
+      (.sendBytesPayload nearby-client endpoint-id bytes))))
 
 (defn ^:async start-host! [nickname]
   (reset! local-name nickname)
@@ -104,4 +113,5 @@
   {:peers/subscribe! subscribe!
    :local/start-host! start-host!
    :local/join! join!
+   :local/send! send!
    :local/stop! stop!})

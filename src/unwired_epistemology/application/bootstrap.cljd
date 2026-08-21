@@ -28,9 +28,14 @@
     (render! (loading-view))
     (try
       (let [identity-ports (await ((:identity/ports! dependencies)))
+            crypto-ports (if (:crypto/ports! dependencies)
+                           (await ((:crypto/ports! dependencies))) {})
+            session-ports (if (:session/ports! dependencies)
+                            (await ((:session/ports! dependencies))) {})
             link-ports (if (:links/ports! dependencies)
                          (await ((:links/ports! dependencies))) {})]
-        (runtime/start (merge dependencies identity-ports link-ports)))
+        (runtime/start (merge dependencies identity-ports crypto-ports session-ports
+                              link-ports)))
       (catch dynamic error
         (render! (error-view error))
         {:application/startup-error error}))))

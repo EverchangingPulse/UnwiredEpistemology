@@ -78,13 +78,57 @@
                         :invitation/text value}))
           nil)))))
 
+(defn- spectrum-zone [spectrum zone]
+  (let [value (:spectrum/value zone)
+        markers (filter #(= value (:marker/value %))
+                        (:spectrum/markers spectrum))]
+    (m/Expanded
+      .child
+      (m/Column
+        .mainAxisSize m/MainAxisSize.min
+        .children
+        [(m/SizedBox
+           .height 84.0
+           .child
+           (m/SingleChildScrollView
+             .child
+             (m/Column
+               .children
+               (mapv (fn [marker]
+                       (m/Text (:marker/nickname marker)
+                               .textAlign m/TextAlign.center
+                               .style (m/TextStyle .fontSize 11.0)))
+                     markers))))
+         (m/Container .height 8.0 .color m/Colors.blue)
+         (m/Padding
+           .padding (painting.EdgeInsets/only .top 4.0)
+           .child
+           (m/Text (str value)
+                   .style (m/TextStyle .fontSize 12.0)))]))))
+
+(defn- spectrum-widget [model]
+  (when-let [spectrum (:view/spectrum model)]
+    (m/Padding
+      .padding (painting.EdgeInsets/only .top 16.0 .bottom 16.0)
+      .child
+      (m/Column
+        .children
+        [(m/Row
+           .crossAxisAlignment m/CrossAxisAlignment.end
+           .children (mapv #(spectrum-zone spectrum %)
+                           (:spectrum/zones spectrum)))
+         (m/Text "1 Strongly Disagree   ·   4 Neutral   ·   7 Strongly Agree"
+                 .textAlign m/TextAlign.center
+                 .style (m/TextStyle .fontSize 11.0))]))))
+
 (defn render! [model]
   (let [dispatch! (:view/dispatch! model)
         details (mapv detail-widget (:view/details model))
         inputs (mapv #(input-widget dispatch! %) (:view/inputs model))
         actions (mapv #(action-widget dispatch! %) (:view/actions model))
         sharing (share-widget model)
-        scanning (scanner-widget model dispatch!)]
+        scanning (scanner-widget model dispatch!)
+        spectrum (spectrum-widget model)]
     (f/run
       (m/MaterialApp
         .title (:view/title model)
@@ -108,4 +152,5 @@
                       (concat details
                               (when sharing [sharing])
                               (when scanning [scanning])
+                              (when spectrum [spectrum])
                               inputs actions))))))))))

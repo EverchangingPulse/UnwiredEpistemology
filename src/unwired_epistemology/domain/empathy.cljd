@@ -16,3 +16,18 @@
        (sort-by (juxt (comp str :pair/left-id)
                       (comp str :pair/right-id)))
        vec))
+
+(defn opposite-member [positions member-id]
+  (some (fn [{:pair/keys [left-id right-id]}]
+          (cond
+            (= member-id left-id) right-id
+            (= member-id right-id) left-id))
+        (pairings positions)))
+
+(defn message [sender-id target-id text]
+  (if (and (some? sender-id) (some? target-id) (seq text)
+           (not= sender-id target-id))
+    {:ok {:empathy/sender-id sender-id
+          :empathy/target-id target-id
+          :empathy/text text}}
+    {:error :empathy.error/invalid-message}))

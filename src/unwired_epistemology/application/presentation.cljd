@@ -28,6 +28,22 @@
                   {:event/type event-type :vote/value value}))
         (range 1 8)))
 
+(defn- spectrum [state]
+  (let [members (get-in state [:app/room :room/members])]
+    {:spectrum/zones (mapv (fn [value]
+                             {:spectrum/value value
+                              :spectrum/label (get likert-labels value)})
+                           (range 1 8))
+     :spectrum/markers
+     (->> (get-in state [:app/vote :vote/positions])
+          (map (fn [[member-id value]]
+                 {:marker/member-id member-id
+                  :marker/nickname (get-in members [member-id :member/nickname]
+                                           "Anonymous participant")
+                  :marker/value value}))
+          (sort-by (juxt :marker/value :marker/nickname))
+          vec)}))
+
 (defn view [state dispatch!]
   (let [screen (:app/screen state)
         local-id (:app/local-member-id state)
@@ -36,6 +52,11 @@
         position (get-in state [:app/vote :vote/positions local-id])
         pending (vals (get-in state [:app/room :room/pending-joins]))
         discovered (vals (:app/discovered-peers state))
+        members (vals (get-in state [:app/room :room/members]))
+        creator? (= local-id (get-in state [:app/room :room/creator-id]))
+        moderator? (or creator?
+                       (contains? (get-in state [:app/room :room/moderator-ids])
+                                  local-id))
         base {:view/title "Unwired Epistemology"
               :view/screen screen
               :view/dispatch! dispatch!}]
@@ -44,7 +65,8 @@
       (case screen
         :view.screen/home
         {:view/heading "P2P Spectrum"
-         :view/status "Choose how peers may connect"
+         :view/status (or (:app/admission-message state)
+                          "Choose how peers may connect")
          :view/inputs [{:input/label "Paste a room code or invitation link"
                         :input/value (:app/invitation-draft state)
                         :input/event-type :event/invitation-draft-changed
@@ -87,8 +109,18 @@
          :view/actions (cond->
                          [(action "Invite people (code, link or QR)"
                                   {:event/type :event/share-room})
-                          (action "Use catalogue question"
-                                  {:event/type :event/use-catalogue-question})]
+                          (action "Catalogue: knowledge and certainty"
+                                  {:event/type :event/use-catalogue-question
+                                   :question/id :catalogue/knowledge-certainty})
+                          (action "Catalogue: law and justice"
+                                  {:event/type :event/use-catalogue-question
+                                   :question/id :catalogue/law-and-justice})
+                          (action "Catalogue: social responsibility"
+                                  {:event/type :event/use-catalogue-question
+                                   :question/id :catalogue/social-responsibility})
+                          (action "Catalogue: free expression"
+                                  {:event/type :event/use-catalogue-question
+                                   :question/id :catalogue/free-expression})]
                          (seq (:app/invitation-draft state))
                          (conj (action "Open returned join request"
                                        {:event/type :event/complete-join-response}))
@@ -114,7 +146,27 @@
                                      (action (str "Reject " (:member/nickname request))
                                              {:event/type :event/reject-join
                                               :member/id (:member/id request)})])
-                                  pending))))}
+                                  pending)
+                                (mapcat
+                                  (fn [member]
+                                    (let [member-id (:member/id member)
+                                          is-moderator (contains?
+                                                         (get-in state [:app/room :room/moderator-ids])
+                                                         member-id)]
+                                      (concat
+                                        (when (and creator? (not= member-id local-id))
+                                          [(action
+                                             (str (if is-moderator "Revoke moderator: "
+                                                      "Make moderator: ")
+                                                  (:member/nickname member))
+                                             {:event/type :event/set-moderator
+                                              :member/id member-id
+                                              :moderator/enabled? (not is-moderator)})])
+                                        (when (and moderator? (not= member-id local-id))
+                                          [(action (str "Remove " (:member/nickname member))
+                                                   {:event/type :event/remove-member
+                                                    :member/id member-id})]))))
+                                  members))))}
 
         :view.screen/scan-invitation
         {:view/heading "Scan a room invitation"
@@ -165,7 +217,9 @@
                              (count (get-in state [:app/question :question/electorate]))
                              " active participant(s)")]
          :view/actions [(action "Approve this claim"
-                                {:event/type :event/approve-custom-question})]}
+                                {:event/type :event/approve-custom-question})
+                        (action "Return to room and add another"
+                                {:event/type :event/back-to-room})]}
 
         :view.screen/question-ready
         {:view/heading (:question/text (:app/question state))
@@ -194,6 +248,7 @@
         :view.screen/revealed
         {:view/heading (:question/text (:app/question state))
          :view/status (str nickname ": " (get likert-labels position))
+         :view/spectrum (spectrum state)
          :view/actions [(action "Begin discussion"
                                 {:event/type :event/begin-discussion})]}
 
@@ -201,7 +256,29 @@
         {:view/heading "Discussion spectrum"
          :view/status (str nickname ": " (get likert-labels position))
          :view/details ["Move at any time as your view changes"]
-         :view/actions (spectrum-actions :event/reposition)}
+         :view/spectrum (spectrum state)
+         :view/actions (into (spectrum-actions :event/reposition)
+                             [(action "Continue to next queued question"
+                                      {:event/type :event/next-question})])}
+
+        :view.screen/empathy-prompt
+        {:view/heading "Consider the opposite perspective"
+         :view/status "You are on the opposite side of another participant. Try to guess the exact underlying reason or logical baseline for why they hold their opposing view."
+         :view/spectrum (spectrum state)
+         :view/inputs [{:input/label "Your private perspective-taking guess"
+                        :input/value (:app/empathy-draft state)
+                        :input/event-type :event/empathy-draft-changed
+                        :input/value-key :empathy/text}]
+         :view/actions (when (seq (:app/empathy-draft state))
+                         [(action "Send privately to the opposite participant"
+                                  {:event/type :event/submit-empathy-message})])}
+
+        :view.screen/empathy-received
+        {:view/heading "An opposite participant considered your perspective"
+         :view/status (get-in state [:app/empathy-message :empathy/text])
+         :view/details ["This guess was delivered only to you."]
+         :view/actions [(action "Return to discussion"
+                                {:event/type :event/close-empathy-message})]}
 
         {:view/heading "Unable to continue"
          :view/status (str (:app/error state))

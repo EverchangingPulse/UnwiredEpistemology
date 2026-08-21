@@ -7,7 +7,11 @@
    :identity/load (constantly nil)
    :identity/save! (fn [_ _] nil)
    :identity/new-member-id (constantly :local)
-   :identity/random-index (constantly 0)})
+   :identity/random-index (constantly 0)
+   :crypto/nonce (constantly "nonce")
+   :crypto/commit (fn [value nonce] (str value ":" nonce))
+   :crypto/verify (fn [commitment value nonce]
+                    (= commitment (str value ":" nonce)))})
 
 (deftest business-application-drives-complete-local-cycle
   (let [rendered (atom [])

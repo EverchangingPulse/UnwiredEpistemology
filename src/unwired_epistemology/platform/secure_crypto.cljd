@@ -1,0 +1,12 @@
+(ns unwired-epistemology.platform.secure-crypto
+  (:require ["dart:convert" :as convert]
+            ["package:cryptography/cryptography.dart" :as cryptography]))
+
+(defn ^:async ports []
+  (let [algorithm (cryptography/X25519)
+        key-pair (await (.newKeyPair algorithm))
+        public-key (await (.extractPublicKey key-pair))]
+    {:crypto/public-key
+     (constantly (convert/base64Url.encode (.-bytes public-key)))
+     :crypto/key-pair key-pair
+     :crypto/key-exchange-algorithm algorithm}))

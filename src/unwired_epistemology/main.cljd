@@ -1,6 +1,8 @@
 (ns unwired-epistemology.main
   (:require [unwired-epistemology.application.bootstrap :as application]
             [unwired-epistemology.platform.secure-identity :as identity]
+            [unwired-epistemology.platform.secure-session :as session]
+            [unwired-epistemology.platform.secure-crypto :as crypto]
             [unwired-epistemology.platform.invitation-codec :as invitation-codec]
             [unwired-epistemology.platform.deep-links :as deep-links]
             [unwired-epistemology.platform.hybrid-peers :as hybrid-peers]
@@ -12,6 +14,8 @@
       (merge {:view/initialize! view/initialize!
               :view/render! view/render!
               :identity/ports! identity/ports
+              :session/ports! session/ports
+              :crypto/ports! crypto/ports
               :links/ports! deep-links/ports}
              (invitation-codec/ports)
              (hybrid-peers/ports)))))

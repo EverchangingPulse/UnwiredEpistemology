@@ -1,7 +1,8 @@
 (ns unwired-epistemology.platform.invitation-codec
   (:require ["dart:convert" :as convert]
             ["dart:io" :as io]
-            ["dart:math" :as math]))
+            ["dart:math" :as math]
+            ["package:crypto/crypto.dart" :as crypto]))
 
 (def kind->wire {:invitation.kind/join-offer "O"
                  :invitation.kind/join-response "R"})
@@ -94,9 +95,15 @@
 (defn url [payload]
   (str "unwiredepistemology://join/" (encode payload)))
 
+(defn commitment [value nonce]
+  (str (.convert crypto/sha256
+                 (convert/utf8.encode (str value ":" nonce)))))
+
 (defn ports []
   (let [random (math/Random.secure)]
     {:invitation/encode encode :invitation/decode decode :invitation/url url
      :crypto/public-key #(str "device-" (.nextInt random 2147483647))
+     :crypto/commit commitment
+     :crypto/verify #(= %1 (commitment %2 %3))
      :crypto/nonce #(str (.nextInt random 2147483647)
                          (.nextInt random 2147483647))}))
