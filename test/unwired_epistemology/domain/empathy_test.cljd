@@ -20,3 +20,15 @@
            :pair/right-id :d
            :pair/values #{2 6}}]
          (empathy/pairings {:d 6 :c 2 :a 1 :b 7}))))
+
+(deftest resolves-target-and-validates-private-message
+  (let [positions {:peer/owl 1 :peer/fox 7 :peer/otter 4}]
+    (is (= :peer/fox (empathy/opposite-member positions :peer/owl)))
+    (is (= {:empathy/sender-id :peer/owl
+            :empathy/target-id :peer/fox
+            :empathy/text "They may prioritize harm prevention"}
+           (:ok (empathy/message
+                  :peer/owl :peer/fox
+                  "They may prioritize harm prevention"))))
+    (is (= :empathy.error/invalid-message
+           (:error (empathy/message :peer/owl :peer/owl "same"))))))

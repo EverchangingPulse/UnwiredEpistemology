@@ -375,23 +375,36 @@
         :else state)
       (failed state (:error result)))))
 
+(defn- valid-admission-snapshot? [state message]
+  (let [offered-room-id (get-in state [:app/join-offer :room/id])
+        snapshot-room (get-in message [:message/state :app/room])
+        sender (:message/sender-id message)
+        target (:message/target-id message)
+        mode (:room/admission-mode snapshot-room)]
+    (and (= offered-room-id (:room/id snapshot-room))
+         (= :member.status/active
+            (get-in snapshot-room [:room/members target :member/status]))
+         (case mode
+           :admission.mode/creator-only (= sender (:room/creator-id snapshot-room))
+           :admission.mode/moderators (room/moderator? snapshot-room sender)
+           :admission.mode/any-member
+           (contains? (room/active-members snapshot-room) sender)
+           false))))
+
 (defn- receive-replication [state dependencies encoded]
   (try
     (let [message (replication/decode encoded)
           sender (:message/sender-id message)
-          message-id (:message/id message)
           sequence-number (:message/sequence message)
           previous (get-in state [:app/replication-sequences sender] -1)]
-      (if (or (contains? (:app/seen-message-ids state) message-id)
-              (<= sequence-number previous))
+      (if (<= sequence-number previous)
         state
-        (let [accepted (-> state
-                           (update :app/seen-message-ids (fnil conj #{}) message-id)
-                           (assoc-in [:app/replication-sequences sender]
-                                     sequence-number))]
+        (let [accepted (assoc-in state [:app/replication-sequences sender]
+                                 sequence-number)]
           (case (:message/type message)
         :replication/admission-snapshot
-        (if (= (:app/local-member-id accepted) (:message/target-id message))
+        (if (and (= (:app/local-member-id accepted) (:message/target-id message))
+                 (valid-admission-snapshot? accepted message))
           (merge accepted (:message/state message)
                  {:app/screen :view.screen/room})
           accepted)
@@ -508,14 +521,11 @@
   (let [state (atom (recover-state dependencies))
         render! (:view/render! dependencies)
         active-dependencies (atom dependencies)
-        outbound-sequence (atom 0)]
+        outbound-sequence (atom (or (:app/outbound-sequence @state) 0))]
     (letfn [(dispatch! [event]
               (let [before @state]
                 (swap! state transition event @active-dependencies)
                 (render! (presentation/view @state dispatch!))
-                (when (:session/save! dependencies)
-                  ((:session/save! dependencies)
-                   (wire/encode (persistable-state @state))))
                 (when (and (:transports/send! dependencies)
                            (not= :view.screen/error (:app/screen @state)))
                   (let [sender (:app/local-member-id @state)
@@ -525,8 +535,8 @@
                                         :event/transport-payload}
                                       (:event/type event))
                            (wire/message? (:transport/text event))
-                           (not= (:app/seen-message-ids before)
-                                 (:app/seen-message-ids @state)))
+                           (not= (:app/replication-sequences before)
+                                 (:app/replication-sequences @state)))
                       ((:transports/send! dependencies) (:transport/text event))
 
                       (= :event/approve-join (:event/type event))
@@ -549,7 +559,11 @@
                        (replication/encode
                          (replication/command
                            sender sequence-number
-                           (outbound-event before @state event)))))))))]
+                           (outbound-event before @state event)))))))
+                (swap! state assoc :app/outbound-sequence @outbound-sequence)
+                (when (:session/save! dependencies)
+                  ((:session/save! dependencies)
+                   (wire/encode (persistable-state @state))))))]
       (reset! active-dependencies
               (assoc dependencies :application/emit! dispatch!))
       (render! (presentation/view @state dispatch!))

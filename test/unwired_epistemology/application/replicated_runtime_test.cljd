@@ -90,6 +90,7 @@
         joiner-state (runtime/transition
                        {:app/screen :view.screen/share-response
                         :app/local-member-id :peer/joiner
+                        :app/join-offer {:room/id :room/one}
                         :app/position-sequence 0}
                        {:event/type :event/replication-received
                         :transport/text encoded}
