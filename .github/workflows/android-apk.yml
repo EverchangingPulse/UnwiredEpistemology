@@ -39,6 +39,7 @@ jobs:
           flutter pub add app_links:^6.4.1
           flutter pub add nearby_connections:^4.3.0
           flutter pub add permission_handler:^12.0.1
+          flutter pub add flutter_webrtc:^1.2.1
           bash scripts/configure_android.sh
       - name: Compile domain tests
         run: >-

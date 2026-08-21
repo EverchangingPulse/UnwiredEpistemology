@@ -19,3 +19,13 @@
         response (invitation/join-response
                    offer :peer/joiner "joiner-key" "response-nonce")]
     (is (= response (codec/decode (codec/encode response))))))
+
+(deftest compressed-webrtc-description-remains-alphanumeric-and-round-trips
+  (let [sdp (apply str (repeat 40 "a=candidate:1 1 UDP 2122260223 192.0.2.1 5000 typ host\r\n"))
+        offer (invitation/join-offer
+                :room/remote :peer/creator :connection.mode/strictly-remote
+                "key" "nonce" 2000000000000 sdp)
+        encoded (codec/encode offer)]
+    (is (re-matches #"[A-Za-z0-9]+" encoded))
+    (is (= sdp (:transport/webrtc-sdp (codec/decode encoded))))
+    (is (< (count encoded) (count (str sdp sdp))))))

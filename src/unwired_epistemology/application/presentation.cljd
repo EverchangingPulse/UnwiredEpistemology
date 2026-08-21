@@ -122,6 +122,18 @@
          :view/scanner {:scanner/event-type :event/qr-detected}
          :view/actions [(action "Cancel" {:event/type :event/reset})]}
 
+        :view.screen/preparing-invitation
+        {:view/heading "Preparing direct connection"
+         :view/status "Gathering WebRTC connection candidates…"
+         :view/details ["The invitation will appear automatically."]
+         :view/actions []}
+
+        :view.screen/preparing-response
+        {:view/heading "Preparing join response"
+         :view/status "Creating the direct WebRTC answer…"
+         :view/details ["No signaling server is being used."]
+         :view/actions []}
+
         :view.screen/share-response
         {:view/heading "Return this response to the room"
          :view/status "The room must approve your request before you join"

@@ -1,0 +1,91 @@
+(ns unwired-epistemology.platform.webrtc-peers
+  (:require ["dart:async" :as async]
+            ["package:flutter_webrtc/flutter_webrtc.dart" :as rtc]))
+
+(def configuration
+  {"iceServers" [{"urls" ["stun:stun.l.google.com:19302"]}]
+   "sdpSemantics" "unified-plan"})
+
+(def peer (atom nil))
+(def channel (atom nil))
+(def listeners (atom #{}))
+(def sequence-number (atom 0))
+
+(defn- emit! [event]
+  (let [sequence (swap! sequence-number inc)
+        complete (merge {:message/id (str "webrtc-" sequence "-"
+                                          (.-millisecondsSinceEpoch (DateTime/now)))
+                         :message/sequence sequence
+                         :peer/id "webrtc-peer"}
+                        event)]
+    (doseq [listener @listeners] (listener complete))))
+
+(defn- attach-channel! [data-channel]
+  (reset! channel data-channel)
+  (set! (.-onMessage data-channel)
+        (fn [message]
+          (emit! {:event/type :event/transport-payload
+                  :transport/type :transport/webrtc
+                  :transport/text (.-text message)})))
+  (set! (.-onDataChannelState data-channel)
+        (fn [state]
+          (when (= state rtc/RTCDataChannelState.RTCDataChannelOpen)
+            (emit! {:event/type :event/peer-found
+                    :peer/nickname "Remote WebRTC peer"
+                    :peer/transports #{:transport/webrtc}})))))
+
+(defn ^:async new-peer! []
+  (when @peer (await (.close @peer)))
+  (let [connection (await (rtc/createPeerConnection configuration {}))]
+    (reset! peer connection)
+    (set! (.-onDataChannel connection) attach-channel!)
+    connection))
+
+(defn ^:async settle-ice! [connection]
+  (await (async/Future.delayed (Duration .milliseconds 2500)))
+  (let [description (await (.getLocalDescription connection))]
+    (.-sdp description)))
+
+(defn ^:async create-offer! [ready!]
+  (let [connection (await (new-peer!))
+        options (rtc/RTCDataChannelInit)
+        data-channel (await (.createDataChannel connection "room-events" options))
+        offer (await (.createOffer connection))]
+    (attach-channel! data-channel)
+    (await (.setLocalDescription connection offer))
+    (ready! (await (settle-ice! connection)))))
+
+(defn ^:async accept-offer! [offer-sdp ready!]
+  (let [connection (await (new-peer!))]
+    (await (.setRemoteDescription
+             connection (rtc/RTCSessionDescription offer-sdp "offer")))
+    (let [answer (await (.createAnswer connection))]
+      (await (.setLocalDescription connection answer))
+      (ready! (await (settle-ice! connection))))))
+
+(defn ^:async complete-answer! [answer-sdp]
+  (when @peer
+    (await (.setRemoteDescription
+             @peer (rtc/RTCSessionDescription answer-sdp "answer")))))
+
+(defn send! [text]
+  (when @channel
+    (.send @channel (rtc/RTCDataChannelMessage text))))
+
+(defn subscribe! [listener]
+  (swap! listeners conj listener)
+  (fn [] (swap! listeners disj listener)))
+
+(defn stop! []
+  (when @channel (.close @channel))
+  (when @peer (.close @peer))
+  (reset! channel nil)
+  (reset! peer nil))
+
+(defn ports []
+  {:remote/create-offer! create-offer!
+   :remote/accept-offer! accept-offer!
+   :remote/complete-answer! complete-answer!
+   :remote/send! send!
+   :remote/subscribe! subscribe!
+   :remote/stop! stop!})

@@ -1,0 +1,18 @@
+(ns unwired-epistemology.platform.hybrid-peers
+  (:require [unwired-epistemology.platform.nearby-peers :as nearby]
+            [unwired-epistemology.platform.webrtc-peers :as webrtc]))
+
+(defn subscribe! [listener]
+  (let [stop-nearby (nearby/subscribe! listener)
+        stop-webrtc (webrtc/subscribe! listener)]
+    (fn [] (stop-nearby) (stop-webrtc))))
+
+(defn stop! []
+  (nearby/stop!)
+  (webrtc/stop!))
+
+(defn ports []
+  (merge (nearby/ports)
+         (webrtc/ports)
+         {:peers/subscribe! subscribe!
+          :transports/stop! stop!}))

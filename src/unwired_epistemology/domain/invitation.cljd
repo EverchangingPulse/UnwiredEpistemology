@@ -5,29 +5,36 @@
 (def invitation-kinds
   #{:invitation.kind/join-offer :invitation.kind/join-response})
 
-(defn join-offer [room-id creator-id connection-mode public-key nonce expires-at]
-  {:invitation/version protocol-version
-   :invitation/kind :invitation.kind/join-offer
-   :room/id room-id
-   :room/creator-id creator-id
-   :room/connection-mode connection-mode
-   :peer/public-key public-key
-   :invitation/nonce nonce
-   :invitation/expires-at expires-at})
+(defn join-offer
+  ([room-id creator-id connection-mode public-key nonce expires-at]
+   (join-offer room-id creator-id connection-mode public-key nonce expires-at nil))
+  ([room-id creator-id connection-mode public-key nonce expires-at webrtc-sdp]
+   (cond-> {:invitation/version protocol-version
+            :invitation/kind :invitation.kind/join-offer
+            :room/id room-id
+            :room/creator-id creator-id
+            :room/connection-mode connection-mode
+            :peer/public-key public-key
+            :invitation/nonce nonce
+            :invitation/expires-at expires-at}
+     webrtc-sdp (assoc :transport/webrtc-sdp webrtc-sdp))))
 
 (defn join-response
   ([offer peer-id public-key response-nonce]
    (join-response offer peer-id "Anonymous participant"
                   public-key response-nonce))
   ([offer peer-id nickname public-key response-nonce]
-   {:invitation/version protocol-version
+   (join-response offer peer-id nickname public-key response-nonce nil))
+  ([offer peer-id nickname public-key response-nonce webrtc-sdp]
+   (cond-> {:invitation/version protocol-version
     :invitation/kind :invitation.kind/join-response
     :room/id (:room/id offer)
     :peer/id peer-id
     :peer/nickname nickname
     :peer/public-key public-key
     :invitation/offer-nonce (:invitation/nonce offer)
-    :invitation/nonce response-nonce}))
+            :invitation/nonce response-nonce}
+     webrtc-sdp (assoc :transport/webrtc-sdp webrtc-sdp))))
 
 (defn valid-offer? [offer now]
   (and (= protocol-version (:invitation/version offer))

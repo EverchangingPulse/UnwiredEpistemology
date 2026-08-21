@@ -3,7 +3,7 @@
             [unwired-epistemology.platform.secure-identity :as identity]
             [unwired-epistemology.platform.invitation-codec :as invitation-codec]
             [unwired-epistemology.platform.deep-links :as deep-links]
-            [unwired-epistemology.platform.nearby-peers :as nearby-peers]
+            [unwired-epistemology.platform.hybrid-peers :as hybrid-peers]
             [unwired-epistemology.platform.flutter.view :as view]))
 
 (defn ^:async main []
@@ -14,4 +14,4 @@
               :identity/ports! identity/ports
               :links/ports! deep-links/ports}
              (invitation-codec/ports)
-             (nearby-peers/ports)))))
+             (hybrid-peers/ports)))))

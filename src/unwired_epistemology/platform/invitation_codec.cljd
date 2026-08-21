@@ -1,5 +1,6 @@
 (ns unwired-epistemology.platform.invitation-codec
   (:require ["dart:convert" :as convert]
+            ["dart:io" :as io]
             ["dart:math" :as math]))
 
 (def kind->wire {:invitation.kind/join-offer "O"
@@ -26,6 +27,15 @@
         bytes (mapv #(int/parse % .radix 16) pairs)]
     (convert/utf8.decode bytes)))
 
+(defn- compressed-hex [value]
+  (apply str (map pad-byte (io/gzip.encode (convert/utf8.encode value)))))
+
+(defn- compressed-unhex [value]
+  (let [pairs (map (fn [offset] (subs value offset (+ offset 2)))
+                   (range 0 (count value) 2))
+        bytes (mapv #(int/parse % .radix 16) pairs)]
+    (convert/utf8.decode (io/gzip.decode bytes))))
+
 (defn- keyword-wire [value] (hex-encode (subs (str value) 1)))
 (defn- wire-keyword [value] (keyword (hex-decode value)))
 
@@ -39,7 +49,9 @@
                   (get mode->wire (:room/connection-mode payload)) "F"
                   (hex-encode (:peer/public-key payload)) "F"
                   (hex-encode (:invitation/nonce payload)) "F"
-                  (str (:invitation/expires-at payload))])
+                  (str (:invitation/expires-at payload)) "F"
+                  (if-let [sdp (:transport/webrtc-sdp payload)]
+                    (compressed-hex sdp) "")])
       :invitation.kind/join-response
       (apply str [(str (:invitation/version payload)) (get kind->wire kind)
                   (keyword-wire (:room/id payload)) "F"
@@ -47,7 +59,9 @@
                   (hex-encode (:peer/nickname payload)) "F"
                   (hex-encode (:peer/public-key payload)) "F"
                   (hex-encode (:invitation/offer-nonce payload)) "F"
-                  (hex-encode (:invitation/nonce payload))])
+                  (hex-encode (:invitation/nonce payload)) "F"
+                  (if-let [sdp (:transport/webrtc-sdp payload)]
+                    (compressed-hex sdp) "")])
       (throw (Exception. "Unsupported invitation kind")))))
 
 (defn decode [encoded]
@@ -56,21 +70,25 @@
         fields (.split (subs encoded 2) "F")]
     (case kind
       :invitation.kind/join-offer
-      {:invitation/version version :invitation/kind kind
+      (cond-> {:invitation/version version :invitation/kind kind
        :room/id (wire-keyword (nth fields 0))
        :room/creator-id (wire-keyword (nth fields 1))
        :room/connection-mode (get wire->mode (nth fields 2))
        :peer/public-key (hex-decode (nth fields 3))
        :invitation/nonce (hex-decode (nth fields 4))
-       :invitation/expires-at (int/parse (nth fields 5))}
+               :invitation/expires-at (int/parse (nth fields 5))}
+        (seq (nth fields 6 ""))
+        (assoc :transport/webrtc-sdp (compressed-unhex (nth fields 6))))
       :invitation.kind/join-response
-      {:invitation/version version :invitation/kind kind
+      (cond-> {:invitation/version version :invitation/kind kind
        :room/id (wire-keyword (nth fields 0))
        :peer/id (wire-keyword (nth fields 1))
        :peer/nickname (hex-decode (nth fields 2))
        :peer/public-key (hex-decode (nth fields 3))
        :invitation/offer-nonce (hex-decode (nth fields 4))
-       :invitation/nonce (hex-decode (nth fields 5))}
+               :invitation/nonce (hex-decode (nth fields 5))}
+        (seq (nth fields 6 ""))
+        (assoc :transport/webrtc-sdp (compressed-unhex (nth fields 6))))
       (throw (Exception. "Unsupported invitation payload")))))
 
 (defn url [payload]

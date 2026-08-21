@@ -48,13 +48,27 @@
       (assoc state :app/room updated)
       (failed state (:error result)))))
 
-(defn- share-room [state dependencies]
+(defn- share-room [state dependencies sdp]
   (let [now (.-millisecondsSinceEpoch (DateTime/now))
-        offer (invitation/create-join-offer dependencies
+        offer (invitation/create-join-offer (assoc dependencies
+                                              :remote/session-description sdp)
                                              (:app/room state)
                                              now 86400000)]
     (assoc state :app/screen :view.screen/share-room
                  :app/invitation offer)))
+
+(defn- begin-share-room [state dependencies]
+  (let [mode (get-in state [:app/room :room/connection-mode])]
+    (if (and (not= mode :connection.mode/strictly-local)
+             (:remote/create-offer! dependencies))
+      (do
+        ((:remote/create-offer! dependencies)
+         (fn [sdp]
+           ((:application/emit! dependencies)
+            {:event/type :event/webrtc-offer-ready
+             :transport/webrtc-sdp sdp})))
+        (assoc state :app/screen :view.screen/preparing-invitation))
+      (share-room state dependencies nil))))
 
 (defn- invitation-code [value]
   (cond
@@ -62,6 +76,14 @@
     (.contains value "#") (last (.split value "#"))
     (.contains value "/") (last (.split value "/"))
     :else value))
+
+(defn- accepted-invitation-state [state accepted anonymous encoded]
+  (assoc state :app/screen :view.screen/share-response
+               :app/local-member-id (:member/id anonymous)
+               :app/join-offer (:invitation/offer accepted)
+               :app/join-response accepted
+               :app/accepted-invitation encoded
+               :app/anonymous-identity anonymous))
 
 (defn- accept-invitation [state dependencies value]
   (try
@@ -71,17 +93,25 @@
           now (.-millisecondsSinceEpoch (DateTime/now))
           result (invitation/accept-join-offer dependencies encoded now anonymous)]
       (if-let [accepted (:ok result)]
-        (do
+        (if-let [webrtc-sdp (:transport/webrtc-sdp offer)]
+          (do
+            ((:remote/accept-offer! dependencies)
+             webrtc-sdp
+             (fn [answer]
+               ((:application/emit! dependencies)
+                {:event/type :event/webrtc-answer-ready
+                 :transport/webrtc-sdp answer})))
+            (assoc state :app/screen :view.screen/preparing-response
+                         :app/accepted-invitation encoded
+                         :app/anonymous-identity anonymous))
+          (do
           (when (and (:local/join! dependencies)
                      (not= :connection.mode/strictly-remote
                            (:room/connection-mode offer)))
             ((:local/join! dependencies)
              (:member/nickname anonymous)
              (:invitation/response-text accepted)))
-          (assoc state :app/screen :view.screen/share-response
-                       :app/local-member-id (:member/id anonymous)
-                       :app/join-offer (:invitation/offer accepted)
-                       :app/join-response accepted))
+            (accepted-invitation-state state accepted anonymous encoded)))
         (failed state (:error result))))
     (catch dynamic error
       (failed state :invitation.error/unreadable-code))))
@@ -89,13 +119,17 @@
 (defn- complete-response [state dependencies value]
   (try
     (let [offer (get-in state [:app/invitation :invitation/payload])
-          result (invitation/complete-exchange dependencies offer
-                                                (invitation-code value))]
+          encoded (invitation-code value)
+          response ((:invitation/decode dependencies) encoded)
+          result (invitation/complete-exchange dependencies offer encoded)]
       (if-let [peer (:ok result)]
-        (join-requested state
-                        {:peer/id (:peer/id peer)
-                         :peer/nickname (:peer/nickname peer)
-                         :peer/public-key (:peer/public-key peer)})
+        (do
+          (when-let [answer (:transport/webrtc-sdp response)]
+            ((:remote/complete-answer! dependencies) answer))
+          (join-requested state
+                          {:peer/id (:peer/id peer)
+                           :peer/nickname (:peer/nickname peer)
+                           :peer/public-key (:peer/public-key peer)}))
         (failed state (:error result))))
     (catch dynamic error
       (failed state :invitation.error/unreadable-response))))
@@ -231,7 +265,20 @@
     :event/create-room (create-room state dependencies event)
     :event/set-admission-mode (set-admission-mode
                                 state (:room/admission-mode event))
-    :event/share-room (share-room state dependencies)
+    :event/share-room (begin-share-room state dependencies)
+    :event/webrtc-offer-ready (share-room state dependencies
+                                          (:transport/webrtc-sdp event))
+    :event/webrtc-answer-ready
+    (let [encoded (:app/accepted-invitation state)
+          anonymous (:app/anonymous-identity state)
+          now (.-millisecondsSinceEpoch (DateTime/now))
+          result (invitation/accept-join-offer
+                   (assoc dependencies :remote/session-description
+                                       (:transport/webrtc-sdp event))
+                   encoded now anonymous)]
+      (if-let [accepted (:ok result)]
+        (accepted-invitation-state state accepted anonymous encoded)
+        (failed state (:error result))))
     :event/back-to-room (assoc state :app/screen :view.screen/room)
     :event/invitation-draft-changed (assoc state :app/invitation-draft
                                            (:invitation/text event))
@@ -269,10 +316,13 @@
 
 (defn start [dependencies]
   (let [state (atom (initial-state))
-        render! (:view/render! dependencies)]
+        render! (:view/render! dependencies)
+        active-dependencies (atom dependencies)]
     (letfn [(dispatch! [event]
-              (swap! state transition event dependencies)
+              (swap! state transition event @active-dependencies)
               (render! (presentation/view @state dispatch!)))]
+      (reset! active-dependencies
+              (assoc dependencies :application/emit! dispatch!))
       (render! (presentation/view @state dispatch!))
       (when-let [initial (:links/initial dependencies)]
         (dispatch! {:event/type :event/invitation-link-received
@@ -289,4 +339,6 @@
                               (when peer-unsubscribe (peer-unsubscribe))
                               (when link-unsubscribe (link-unsubscribe))
                               (when (:local/stop! dependencies)
-                                ((:local/stop! dependencies))))}))))
+                                ((:local/stop! dependencies)))
+                              (when (:remote/stop! dependencies)
+                                ((:remote/stop! dependencies))))}))))
