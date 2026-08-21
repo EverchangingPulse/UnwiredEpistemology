@@ -77,11 +77,15 @@ jobs:
         run: clojure -M:cljd compile
       - name: Build optimized release APK
         run: flutter build apk --release
+      - name: Build compatibility APK
+        run: flutter build apk --debug
       - name: Publish APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: unwired-epistemology-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: unwired-epistemology-android-apks
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
           retention-days: 14
       - name: Enable KVM for Android emulator
@@ -100,4 +104,4 @@ jobs:
           emulator-options: >-
             -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
             -camera-back none
-          script: APP_APK=build/app/outputs/flutter-apk/app-release.apk bash scripts/android_smoke_test.sh
+          script: APP_APK=build/app/outputs/flutter-apk/app-debug.apk bash scripts/android_smoke_test.sh

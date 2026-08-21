@@ -71,7 +71,7 @@ flutter test test/cljd-out
 
 ## Delivery
 
-The `Android APK` workflow runs on pull requests, pushes to `main`, and manual dispatch. Its `unwired-epistemology-release-apk` artifact contains an optimized, installable release-mode APK. Until a private production keystore is supplied through protected repository secrets, Android's generated test signing identity is used; this APK is suitable for direct testing, but not Play Store publication or a stable production upgrade path.
+The `Android APK` workflow runs on pull requests, pushes to `main`, and manual dispatch. Its `unwired-epistemology-android-apks` artifact contains both an optimized release-mode APK and a broadly compatible debug-mode testing APK. Until a private production keystore is supplied through protected repository secrets, Android's generated test signing identity is used; these APKs are suitable for direct testing, but not Play Store publication or a stable production upgrade path.
 
 ## Scope
 
