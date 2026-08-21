@@ -43,7 +43,7 @@ Install Flutter stable, Java 17, and Clojure CLI, then run:
 clojure -M:cljd init
 dart pub add --dev test
 clojure -M:cljd compile
-flutter build apk --debug
+flutter build apk --release
 ```
 
 The APK is written beneath `build/app/outputs/flutter-apk/`.
@@ -71,7 +71,7 @@ flutter test test/cljd-out
 
 ## Delivery
 
-The `Android APK` workflow runs on pull requests, pushes to `main`, and manual dispatch. Its `unwired-epistemology-debug-apk` artifact contains an installable debug APK. Release signing remains a later milestone and will use protected repository secrets.
+The `Android APK` workflow runs on pull requests, pushes to `main`, and manual dispatch. Its `unwired-epistemology-release-apk` artifact contains an optimized, installable release-mode APK. Until a private production keystore is supplied through protected repository secrets, Android's generated test signing identity is used; this APK is suitable for direct testing, but not Play Store publication or a stable production upgrade path.
 
 ## Scope
 

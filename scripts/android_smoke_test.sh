@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-app_apk="build/app/outputs/flutter-apk/app-debug.apk"
+app_apk="${APP_APK:-build/app/outputs/flutter-apk/app-debug.apk}"
 aapt_path="$(find "${ANDROID_HOME}/build-tools" -type f -name aapt | sort -V | tail -1)"
 test -x "${aapt_path}"
 
