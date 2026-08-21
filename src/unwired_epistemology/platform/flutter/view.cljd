@@ -50,14 +50,18 @@
          .padding (painting.EdgeInsets/only .top 8.0)
          .child
          (m/ElevatedButton
-           .onPressed #(services/Clipboard.setData
-                         (services/ClipboardData .text (:share/code invitation)))
+           .onPressed (fn []
+                        (services/Clipboard.setData
+                          (services/ClipboardData .text (:share/code invitation)))
+                        nil)
            .child (m/Text "Copy room code")))
        (m/Padding
          .padding (painting.EdgeInsets/only .top 8.0)
          .child
          (m/ElevatedButton
-           .onPressed #(share/Share.share (:share/url invitation))
+           .onPressed (fn []
+                        (share/Share.share (:share/url invitation))
+                        nil)
            .child (m/Text "Share invitation link")))])))
 
 (defn render! [model]

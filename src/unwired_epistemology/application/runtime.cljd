@@ -42,7 +42,7 @@
       (failed state (:error result)))))
 
 (defn- share-room [state dependencies]
-  (let [now (.millisecondsSinceEpoch (DateTime/now))
+  (let [now (.-millisecondsSinceEpoch (DateTime/now))
         offer (invitation/create-join-offer dependencies
                                              (:app/room state)
                                              now 86400000)]
