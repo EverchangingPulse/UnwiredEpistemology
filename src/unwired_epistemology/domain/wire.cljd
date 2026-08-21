@@ -41,6 +41,13 @@
       (let [[item next] (decode-value encoded cursor)]
         (recur (dec remaining) next (conj items item))))))
 
+(defn- items->map [items]
+  (loop [remaining items result {}]
+    (if (empty? remaining)
+      result
+      (recur (drop 2 remaining)
+             (assoc result (first remaining) (second remaining))))))
+
 (defn decode-value [encoded offset]
   (let [tag (subs encoded offset (inc offset))
         cursor (inc offset)]
@@ -59,7 +66,7 @@
               [(set items) next])
       "M" (let [[size start] (read-frame encoded cursor)
                 [items next] (decode-items encoded start (* 2 (int/parse size)))]
-              [(into {} (partition 2 items)) next])
+              [(items->map items) next])
       (throw (Exception. (str "Unknown wire tag: " tag))))))
 
 (defn encode [message]
