@@ -1,10 +1,13 @@
 (ns unwired-epistemology.main
   (:require [unwired-epistemology.application.bootstrap :as application]
             [unwired-epistemology.platform.secure-identity :as identity]
+            [unwired-epistemology.platform.invitation-codec :as invitation-codec]
             [unwired-epistemology.platform.flutter.view :as view]))
 
 (defn ^:async main []
   (await
-    (application/start {:view/initialize! view/initialize!
-                        :view/render! view/render!
-                        :identity/ports! identity/ports})))
+    (application/start
+      (merge {:view/initialize! view/initialize!
+              :view/render! view/render!
+              :identity/ports! identity/ports}
+             (invitation-codec/ports)))))

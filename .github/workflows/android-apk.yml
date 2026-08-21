@@ -33,6 +33,8 @@ jobs:
         run: |
           dart pub add --dev test
           flutter pub add flutter_secure_storage:^10.3.1
+          flutter pub add qr_flutter:^4.1.0
+          flutter pub add share_plus:^10.1.4
       - name: Compile domain tests
         run: >-
           clojure -M:cljd compile
@@ -49,6 +51,7 @@ jobs:
           unwired-epistemology.application.invitation-test
           unwired-epistemology.application.bootstrap-test
           unwired-epistemology.platform.secure-identity-test
+          unwired-epistemology.platform.invitation-codec-test
           unwired-epistemology.application.peer-observer-test
           unwired-epistemology.application.runtime-test
       - name: Run domain tests

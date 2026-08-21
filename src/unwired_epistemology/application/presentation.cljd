@@ -71,7 +71,9 @@
                         :input/event-type :event/question-draft-changed
                         :input/value-key :question/text}]
          :view/actions (cond->
-                         [(action "Use catalogue question"
+                         [(action "Invite people (code, link or QR)"
+                                  {:event/type :event/share-room})
+                          (action "Use catalogue question"
                                   {:event/type :event/use-catalogue-question})]
                          (seq (:app/question-draft state))
                          (conj (action "Submit claim for approval"
@@ -96,6 +98,16 @@
                                              {:event/type :event/reject-join
                                               :member/id (:member/id request)})])
                                   pending))))}
+
+        :view.screen/share-room
+        {:view/heading "Invite people to this room"
+         :view/status "One end-to-end invitation, available in every format"
+         :view/details ["A join request still requires approval after exchange."]
+         :view/share {:share/code (get-in state [:app/invitation :invitation/text])
+                      :share/url (get-in state [:app/invitation :invitation/url])
+                      :share/qr (get-in state [:app/invitation :invitation/url])}
+         :view/actions [(action "Back to room"
+                                {:event/type :event/back-to-room})]}
 
         :view.screen/question-pending
         {:view/heading (:question/text (:app/question state))

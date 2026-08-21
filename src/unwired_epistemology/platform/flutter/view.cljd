@@ -1,6 +1,9 @@
 (ns unwired-epistemology.platform.flutter.view
   (:require ["package:flutter/material.dart" :as m]
             ["package:flutter/painting.dart" :as painting]
+            ["package:flutter/services.dart" :as services]
+            ["package:qr_flutter/qr_flutter.dart" :as qr]
+            ["package:share_plus/share_plus.dart" :as share]
             [cljd.flutter :as f]))
 
 (defn initialize! []
@@ -35,11 +38,34 @@
         (dispatch! {:event/type (:input/event-type input)
                     (:input/value-key input) value})))))
 
+(defn- share-widget [model]
+  (when-let [invitation (:view/share model)]
+    (m/Column
+      .children
+      [(m/Padding
+         .padding (painting.EdgeInsets/all 16.0)
+         .child (qr/QrImageView .data (:share/qr invitation) .size 260.0))
+       (m/SelectableText (:share/code invitation))
+       (m/Padding
+         .padding (painting.EdgeInsets/only .top 8.0)
+         .child
+         (m/ElevatedButton
+           .onPressed #(services/Clipboard.setData
+                         (services/ClipboardData .text (:share/code invitation)))
+           .child (m/Text "Copy room code")))
+       (m/Padding
+         .padding (painting.EdgeInsets/only .top 8.0)
+         .child
+         (m/ElevatedButton
+           .onPressed #(share/Share.share (:share/url invitation))
+           .child (m/Text "Share invitation link")))])))
+
 (defn render! [model]
   (let [dispatch! (:view/dispatch! model)
         details (mapv detail-widget (:view/details model))
         inputs (mapv #(input-widget dispatch! %) (:view/inputs model))
-        actions (mapv #(action-widget dispatch! %) (:view/actions model))]
+        actions (mapv #(action-widget dispatch! %) (:view/actions model))
+        sharing (share-widget model)]
     (f/run
       (m/MaterialApp
         .title (:view/title model)
@@ -60,4 +86,4 @@
                        (m/SizedBox .height 12.0)
                        (m/Text (:view/status model))
                        (m/SizedBox .height 16.0)]
-                      (concat details inputs actions))))))))))
+                      (concat details (when sharing [sharing]) inputs actions))))))))))

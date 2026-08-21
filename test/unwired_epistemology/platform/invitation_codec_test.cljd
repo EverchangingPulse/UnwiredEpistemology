@@ -1,0 +1,21 @@
+(ns unwired-epistemology.platform.invitation-codec-test
+  (:require [clojure.test :refer [deftest is]]
+            [unwired-epistemology.domain.invitation :as invitation]
+            [unwired-epistemology.platform.invitation-codec :as codec]))
+
+(deftest offer-round-trips-through-alphanumeric-code
+  (let [offer (invitation/join-offer
+                :room/alpha :peer/creator :connection.mode/dynamic
+                "public-key" "nonce-1" 2000000000000)
+        encoded (codec/encode offer)]
+    (is (re-matches #"[A-Za-z0-9]+" encoded))
+    (is (= offer (codec/decode encoded)))
+    (is (.endsWith (codec/url offer) encoded))))
+
+(deftest response-round-trips-through-alphanumeric-code
+  (let [offer (invitation/join-offer
+                :room/alpha :peer/creator :connection.mode/dynamic
+                "creator-key" "offer-nonce" 2000000000000)
+        response (invitation/join-response
+                   offer :peer/joiner "joiner-key" "response-nonce")]
+    (is (= response (codec/decode (codec/encode response))))))

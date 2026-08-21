@@ -1,6 +1,7 @@
 (ns unwired-epistemology.application.runtime
   (:require [unwired-epistemology.application.presentation :as presentation]
             [unwired-epistemology.application.identity :as identity]
+            [unwired-epistemology.application.invitation :as invitation]
             [unwired-epistemology.application.peer-observer :as peer-observer]
             [unwired-epistemology.domain.questions :as questions]
             [unwired-epistemology.domain.room :as room]
@@ -39,6 +40,14 @@
     (if-let [updated (:ok result)]
       (assoc state :app/room updated)
       (failed state (:error result)))))
+
+(defn- share-room [state dependencies]
+  (let [now (.millisecondsSinceEpoch (DateTime/now))
+        offer (invitation/create-join-offer dependencies
+                                             (:app/room state)
+                                             now 86400000)]
+    (assoc state :app/screen :view.screen/share-room
+                 :app/invitation offer)))
 
 (defn- peer-found [state event]
   (assoc-in state [:app/discovered-peers (:peer/id event)]
@@ -171,6 +180,8 @@
     :event/create-room (create-room state dependencies event)
     :event/set-admission-mode (set-admission-mode
                                 state (:room/admission-mode event))
+    :event/share-room (share-room state dependencies)
+    :event/back-to-room (assoc state :app/screen :view.screen/room)
     :event/peer-found (peer-found state event)
     :event/peer-lost (peer-lost state event)
     :event/join-requested (join-requested state event)
