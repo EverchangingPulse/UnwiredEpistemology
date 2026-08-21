@@ -517,11 +517,18 @@
                   ((:session/save! dependencies)
                    (wire/encode (persistable-state @state))))
                 (when (and (:transports/send! dependencies)
-                           (not= :view.screen/error (:app/screen @state))
-                           (not= :event/replication-received (:event/type event)))
+                           (not= :view.screen/error (:app/screen @state)))
                   (let [sender (:app/local-member-id @state)
                         sequence-number (swap! outbound-sequence inc)]
                     (cond
+                      (and (contains? #{:event/replication-received
+                                        :event/transport-payload}
+                                      (:event/type event))
+                           (wire/message? (:transport/text event))
+                           (not= (:app/seen-message-ids before)
+                                 (:app/seen-message-ids @state)))
+                      ((:transports/send! dependencies) (:transport/text event))
+
                       (= :event/approve-join (:event/type event))
                       ((:transports/send! dependencies)
                        (replication/encode

@@ -64,6 +64,7 @@ jobs:
           unwired-epistemology.application.peer-observer-test
           unwired-epistemology.application.runtime-test
           unwired-epistemology.application.replication-test
+          unwired-epistemology.application.replicated-runtime-test
       - name: Run domain tests
         run: flutter test test/cljd-out
       - name: Enforce presentation dependency direction
