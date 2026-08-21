@@ -1,0 +1,41 @@
+(ns unwired-epistemology.application.invitation
+  (:require [unwired-epistemology.domain.invitation :as invitation]))
+
+(defn create-join-offer [ports room now ttl]
+  (let [payload (invitation/join-offer
+                  (:room/id room)
+                  (:room/creator-id room)
+                  (:room/connection-mode room)
+                  ((:crypto/public-key ports))
+                  ((:crypto/nonce ports))
+                  (+ now ttl)
+                  (:remote/session-description ports))]
+    {:invitation/payload payload
+     :invitation/text ((:invitation/encode ports) payload)
+     :invitation/url ((:invitation/url ports) payload)}))
+
+(defn accept-join-offer [ports encoded now peer]
+  (let [offer ((:invitation/decode ports) encoded)]
+    (if (invitation/valid-offer? offer now)
+      (let [peer-id (if (map? peer) (:member/id peer) peer)
+            nickname (if (map? peer) (:member/nickname peer)
+                         "Anonymous participant")
+            response (invitation/join-response
+                       offer peer-id nickname
+                       ((:crypto/public-key ports))
+                       ((:crypto/nonce ports))
+                       (:remote/session-description ports))]
+        {:ok {:invitation/offer offer
+              :invitation/response response
+              :invitation/response-text
+              ((:invitation/encode ports) response)}})
+      {:error :invitation.error/invalid-or-expired-offer})))
+
+(defn complete-exchange [ports offer encoded-response]
+  (let [response ((:invitation/decode ports) encoded-response)]
+    (if (invitation/valid-response? offer response)
+      {:ok {:peer/id (:peer/id response)
+            :peer/nickname (:peer/nickname response)
+            :peer/public-key (:peer/public-key response)
+            :peer/handshake-nonce (:invitation/nonce response)}}
+      {:error :invitation.error/response-does-not-match-offer})))

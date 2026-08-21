@@ -1,0 +1,15 @@
+.clj-kondo/.cache/
+.cpcache/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.idea/
+.metadata
+.packages
+android/.gradle/
+build/
+coverage/
+lib/cljd-out/
+pubspec.lock
+test/cljd-out/
+*.iml

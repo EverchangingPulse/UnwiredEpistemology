@@ -1,0 +1,159 @@
+(ns unwired-epistemology.platform.flutter.view
+  (:require ["package:flutter/material.dart" :as m]
+            ["package:flutter/painting.dart" :as painting]
+            ["package:flutter/services.dart" :as services]
+            ["package:qr_flutter/qr_flutter.dart" :as qr]
+            ["package:share_plus/share_plus.dart" :as share]
+            ["package:mobile_scanner/mobile_scanner.dart" :as scanner]
+            [cljd.flutter :as f]))
+
+(defn initialize! []
+  (m.WidgetsFlutterBinding/ensureInitialized))
+
+(defn- detail-widget [detail]
+  (m/Padding
+    .padding (painting.EdgeInsets/only .bottom 6.0)
+    .child (m/Text detail)))
+
+(defn- action-widget [dispatch! action]
+  (m/Padding
+    .padding (painting.EdgeInsets/only .top 8.0)
+    .child
+    (m/SizedBox
+      .width 320.0
+      .child
+      (m/ElevatedButton
+        .onPressed #(dispatch! (:action/event action))
+        .child (m/Text (:action/label action))))))
+
+(defn- input-widget [dispatch! input]
+  (m/Padding
+    .padding (painting.EdgeInsets/only .top 8.0 .bottom 8.0)
+    .child
+    (m/TextField
+      .decoration (m/InputDecoration
+                    .border (m/OutlineInputBorder)
+                    .labelText (:input/label input))
+      .onChanged
+      (fn [value]
+        (dispatch! {:event/type (:input/event-type input)
+                    (:input/value-key input) value})))))
+
+(defn- share-widget [model]
+  (when-let [invitation (:view/share model)]
+    (m/Column
+      .children
+      (into
+       (if-let [qr-data (:share/qr invitation)]
+         [(m/Padding
+            .padding (painting.EdgeInsets/all 16.0)
+            .child (qr/QrImageView .data qr-data .size 260.0))]
+         [])
+       [(m/SelectableText (:share/code invitation))
+       (m/Padding
+         .padding (painting.EdgeInsets/only .top 8.0)
+         .child
+         (m/ElevatedButton
+           .onPressed (fn []
+                        (services/Clipboard.setData
+                          (services/ClipboardData .text (:share/code invitation)))
+                        nil)
+           .child (m/Text "Copy room code")))
+       (m/Padding
+         .padding (painting.EdgeInsets/only .top 8.0)
+         .child
+         (m/ElevatedButton
+           .onPressed (fn []
+                        (share/Share.share (:share/url invitation))
+                        nil)
+           .child (m/Text "Share invitation link")))]))))
+
+(defn- scanner-widget [model dispatch!]
+  (when-let [configuration (:view/scanner model)]
+    (m/SizedBox
+      .height 420.0
+      .child
+      (scanner/MobileScanner
+        .onDetect
+        (fn [capture]
+          (when-let [value (some-> capture .-barcodes first .-rawValue)]
+            (dispatch! {:event/type (:scanner/event-type configuration)
+                        :invitation/text value}))
+          nil)))))
+
+(defn- spectrum-zone [spectrum zone]
+  (let [value (:spectrum/value zone)
+        markers (filter #(= value (:marker/value %))
+                        (:spectrum/markers spectrum))]
+    (m/Expanded
+      .child
+      (m/Column
+        .mainAxisSize m/MainAxisSize.min
+        .children
+        [(m/SizedBox
+           .height 84.0
+           .child
+           (m/SingleChildScrollView
+             .child
+             (m/Column
+               .children
+               (mapv (fn [marker]
+                       (m/Text (:marker/nickname marker)
+                               .textAlign m/TextAlign.center
+                               .style (m/TextStyle .fontSize 11.0)))
+                     markers))))
+         (m/Container .height 8.0 .color m/Colors.blue)
+         (m/Padding
+           .padding (painting.EdgeInsets/only .top 4.0)
+           .child
+           (m/Text (str value)
+                   .style (m/TextStyle .fontSize 12.0)))]))))
+
+(defn- spectrum-widget [model]
+  (when-let [spectrum (:view/spectrum model)]
+    (m/Padding
+      .padding (painting.EdgeInsets/only .top 16.0 .bottom 16.0)
+      .child
+      (m/Column
+        .children
+        [(m/Row
+           .crossAxisAlignment m/CrossAxisAlignment.end
+           .children (mapv #(spectrum-zone spectrum %)
+                           (:spectrum/zones spectrum)))
+         (m/Text "1 Strongly Disagree   ·   4 Neutral   ·   7 Strongly Agree"
+                 .textAlign m/TextAlign.center
+                 .style (m/TextStyle .fontSize 11.0))]))))
+
+(defn render! [model]
+  (let [dispatch! (:view/dispatch! model)
+        details (mapv detail-widget (:view/details model))
+        inputs (mapv #(input-widget dispatch! %) (:view/inputs model))
+        actions (mapv #(action-widget dispatch! %) (:view/actions model))
+        sharing (share-widget model)
+        scanning (scanner-widget model dispatch!)
+        spectrum (spectrum-widget model)]
+    (f/run
+      (m/MaterialApp
+        .title (:view/title model)
+        .theme (m/ThemeData .useMaterial3 true)
+        .home
+        (m/Scaffold
+          .appBar (m/AppBar .title (m/Text (:view/title model)))
+          .body
+          (m/SafeArea
+            .child
+            (m/SingleChildScrollView
+              .padding (painting.EdgeInsets/all 24.0)
+              .child
+              (m/Column
+                .children
+                (into [(m/Text (:view/heading model)
+                               .style (m/TextStyle .fontSize 26.0))
+                       (m/SizedBox .height 12.0)
+                       (m/Text (:view/status model))
+                       (m/SizedBox .height 16.0)]
+                      (concat details actions
+                              (when sharing [sharing])
+                              (when scanning [scanning])
+                              (when spectrum [spectrum])
+                              inputs))))))))))

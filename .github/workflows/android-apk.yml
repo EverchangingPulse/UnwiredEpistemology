@@ -1,0 +1,107 @@
+name: Android APK
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: DeLaGuardo/setup-clojure@13.6.1
+        with:
+          cli: 1.12.5.1664
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Initialize Flutter project
+        run: clojure -M:cljd init
+      - name: Install test runtime
+        run: |
+          dart pub add --dev test
+          flutter pub add flutter_secure_storage:^10.3.1
+          flutter pub add qr_flutter:^4.1.0
+          flutter pub add share_plus:^10.1.4
+          flutter pub add mobile_scanner:^6.0.11
+          flutter pub add app_links:^6.4.1
+          flutter pub add nearby_connections:^4.3.0
+          flutter pub add permission_handler:^12.0.1
+          flutter pub add flutter_webrtc:^1.2.1
+          flutter pub add crypto:^3.0.7
+          flutter pub add cryptography:^2.9.0
+          bash scripts/configure_android.sh
+      - name: Compile domain tests
+        run: >-
+          clojure -M:cljd compile
+          unwired-epistemology.domain.peer-events-test
+          unwired-epistemology.domain.wire-test
+          unwired-epistemology.domain.identity-test
+          unwired-epistemology.domain.invitation-test
+          unwired-epistemology.domain.admission-test
+          unwired-epistemology.domain.likert-test
+          unwired-epistemology.domain.questions-test
+          unwired-epistemology.domain.voting-test
+          unwired-epistemology.domain.empathy-test
+          unwired-epistemology.application.room-test
+          unwired-epistemology.application.presentation-test
+          unwired-epistemology.application.identity-test
+          unwired-epistemology.application.invitation-test
+          unwired-epistemology.application.bootstrap-test
+          unwired-epistemology.platform.secure-identity-test
+          unwired-epistemology.platform.invitation-codec-test
+          unwired-epistemology.application.peer-observer-test
+          unwired-epistemology.application.runtime-test
+          unwired-epistemology.application.replication-test
+          unwired-epistemology.application.replicated-runtime-test
+      - name: Run domain tests
+        run: flutter test test/cljd-out
+      - name: Enforce presentation dependency direction
+        run: >-
+          ! grep -R -E
+          'unwired-epistemology\.(application|domain)'
+          src/unwired_epistemology/platform
+      - name: Compile application
+        run: clojure -M:cljd compile
+      - name: Build optimized release APK
+        run: flutter build apk --release
+      - name: Build compatibility APK
+        run: flutter build apk --debug
+      - name: Publish APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unwired-epistemology-android-apks
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Enable KVM for Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Launch APK and verify first graphical interaction
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+            -camera-back none
+          script: APP_APK=build/app/outputs/flutter-apk/app-debug.apk bash scripts/android_smoke_test.sh

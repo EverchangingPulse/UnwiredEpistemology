@@ -1,0 +1,28 @@
+(ns unwired-epistemology.application.identity-test
+  (:require [clojure.test :refer [deftest is]]
+            [unwired-epistemology.application.identity :as application]))
+
+(deftest reconnecting-to-a-room-restores-the-exact-identity
+  (let [storage (atom {})
+        generations (atom 0)
+        ports {:identity/load #(get @storage %)
+               :identity/save! #(swap! storage assoc %1 %2)
+               :identity/new-member-id (fn []
+                                         (swap! generations inc)
+                                         :peer/private-id)
+               :identity/random-index (constantly 0)}
+        first-join (:ok (application/for-room ports :room/one))
+        reconnect (:ok (application/for-room ports :room/one))]
+    (is (= first-join reconnect))
+    (is (= "Anonymous Owl" (:member/nickname reconnect)))
+    (is (= 1 @generations))))
+
+(deftest identities-are-scoped-by-room
+  (let [storage (atom {})
+        next-id (atom 0)
+        ports {:identity/load #(get @storage %)
+               :identity/save! #(swap! storage assoc %1 %2)
+               :identity/new-member-id #(keyword "peer" (str (swap! next-id inc)))
+               :identity/random-index #(deref next-id)}]
+    (is (not= (:ok (application/for-room ports :room/one))
+              (:ok (application/for-room ports :room/two))))))

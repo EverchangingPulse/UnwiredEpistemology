@@ -1,0 +1,64 @@
+(ns unwired-epistemology.application.replication
+  (:require [unwired-epistemology.domain.wire :as wire]))
+
+(def replicated-event-types
+  #{:event/set-admission-mode
+    :event/approve-join
+    :event/reject-join
+    :event/set-moderator
+    :event/remove-member
+    :event/use-catalogue-question
+    :event/submit-custom-question
+    :event/approve-custom-question
+    :event/start-vote
+    :event/next-question
+    :event/commit-received
+    :event/reveal-received
+    :event/begin-discussion
+    :event/reposition
+    :event/submit-empathy-message})
+
+(defn public-state [state]
+  (select-keys state [:app/room :app/question :app/vote :app/screen]))
+
+(defn command [sender-id sequence-number event]
+  {:message/version 2
+   :message/type :replication/command
+   :message/id (str sender-id "-" sequence-number)
+   :message/sender-id sender-id
+   :message/sequence sequence-number
+   :message/event (assoc event :actor/id sender-id)})
+
+(defn admission-snapshot [sender-id sequence-number target-id state]
+  {:message/version 2
+   :message/type :replication/admission-snapshot
+   :message/id (str sender-id "-snapshot-" sequence-number)
+   :message/sender-id sender-id
+   :message/sequence sequence-number
+   :message/target-id target-id
+   :message/state (public-state state)})
+
+(defn admission-rejected [sender-id sequence-number target-id]
+  {:message/version 2
+   :message/type :replication/admission-rejected
+   :message/id (str sender-id "-rejected-" sequence-number)
+   :message/sender-id sender-id
+   :message/sequence sequence-number
+   :message/target-id target-id})
+
+(defn valid? [message]
+  (and (= 2 (:message/version message))
+       (contains? #{:replication/command :replication/admission-snapshot
+                    :replication/admission-rejected}
+                  (:message/type message))
+       (some? (:message/id message))
+       (some? (:message/sender-id message))
+       (int? (:message/sequence message))))
+
+(defn encode [message] (wire/encode message))
+(defn decode [encoded]
+  (let [message (wire/decode encoded)]
+    (when (valid? message) message)))
+
+(defn replicable? [event]
+  (contains? replicated-event-types (:event/type event)))

@@ -1,0 +1,20 @@
+(ns unwired-epistemology.domain.wire-test
+  (:require [clojure.test :refer [deftest is]]
+            [unwired-epistemology.domain.wire :as wire]))
+
+(deftest nested-domain-values-round-trip-deterministically
+  (let [value {:message/type :replication/command
+               :message/sequence 42
+               :message/active? true
+               :message/event {:event/type :event/reposition
+                               :vote/value 7
+                               :members #{:peer/b :peer/a}}
+               :message/items ["question" nil 3]}
+        encoded (wire/encode value)]
+    (is (wire/message? encoded))
+    (is (= encoded (wire/encode value)))
+    (is (= value (wire/decode encoded)))))
+
+(deftest length-framing-preserves-arbitrary-question-text
+  (let [value {:text "Certainty: yes | no? 🦉\nSecond line"}]
+    (is (= value (wire/decode (wire/encode value))))))

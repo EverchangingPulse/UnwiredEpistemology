@@ -1,0 +1,13 @@
+(ns unwired-epistemology.platform.deep-links
+  (:require ["package:app_links/app_links.dart" :as links]))
+
+(defn ^:async ports []
+  (let [app-links (links/AppLinks)
+        initial (await (.getInitialLink app-links))]
+    {:links/initial (when initial (str initial))
+     :links/subscribe!
+     (fn [receive!]
+       (let [subscription
+             (.listen (.-uriLinkStream app-links)
+                      (fn [uri] (receive! (str uri))))]
+         (fn [] (.cancel subscription))))}))

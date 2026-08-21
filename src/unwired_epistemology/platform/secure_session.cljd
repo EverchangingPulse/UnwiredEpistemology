@@ -1,0 +1,12 @@
+(ns unwired-epistemology.platform.secure-session
+  (:require ["package:flutter_secure_storage/flutter_secure_storage.dart" :as secure]))
+
+(def storage-key "unwired:last-session:v2")
+
+(defn ^:async ports []
+  (let [storage (secure/FlutterSecureStorage)
+        persisted (await (.read storage .key storage-key))]
+    {:session/load (fn [] persisted)
+     :session/save! (fn [encoded]
+                      (.write storage .key storage-key .value encoded))
+     :session/clear! (fn [] (.delete storage .key storage-key))}))

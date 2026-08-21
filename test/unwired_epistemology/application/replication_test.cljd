@@ -1,0 +1,16 @@
+(ns unwired-epistemology.application.replication-test
+  (:require [clojure.test :refer [deftest is]]
+            [unwired-epistemology.application.replication :as replication]))
+
+(deftest commands-carry-actor-and-round-trip
+  (let [message (replication/command
+                  :peer/owl 3
+                  {:event/type :event/reposition :vote/value 6})]
+    (is (= message (replication/decode (replication/encode message))))
+    (is (= :peer/owl (get-in message [:message/event :actor/id])))))
+
+(deftest private-selection-is-never-replicated
+  (is (not (replication/replicable?
+             {:event/type :event/select-vote :vote/value 7})))
+  (is (replication/replicable?
+        {:event/type :event/reposition :vote/value 7})))

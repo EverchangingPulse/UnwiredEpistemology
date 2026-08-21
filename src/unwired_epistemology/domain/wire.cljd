@@ -1,0 +1,81 @@
+(ns unwired-epistemology.domain.wire)
+
+(def protocol-prefix "UW2")
+
+(declare encode-value decode-value)
+
+(defn- frame [value]
+  (let [text (str value)]
+    (str (count text) ":" text)))
+
+(defn encode-value [value]
+  (cond
+    (nil? value) "N"
+    (keyword? value) (str "K" (frame (subs (str value) 1)))
+    (string? value) (str "S" (frame value))
+    (integer? value) (str "I" (frame value))
+    (true? value) "B1"
+    (false? value) "B0"
+    (vector? value) (str "V" (frame (count value))
+                         (apply str (map encode-value value)))
+    (set? value) (str "T" (frame (count value))
+                      (apply str (map encode-value (sort-by str value))))
+    (map? value) (str "M" (frame (count value))
+                      (apply str
+                             (mapcat (fn [[key item]]
+                                       [(encode-value key) (encode-value item)])
+                                     (sort-by (comp str key) value))))
+    :else (throw (Exception. (str "Unsupported wire value: " value)))))
+
+(defn- read-frame [encoded offset]
+  (let [separator (.indexOf encoded ":" offset)
+        length (int/parse (subs encoded offset separator))
+        start (inc separator)
+        end (+ start length)]
+    [(subs encoded start end) end]))
+
+(defn- decode-items [encoded offset count]
+  (loop [remaining count cursor offset items []]
+    (if (zero? remaining)
+      [items cursor]
+      (let [[item next] (decode-value encoded cursor)]
+        (recur (dec remaining) next (conj items item))))))
+
+(defn- items->map [items]
+  (loop [remaining items result {}]
+    (if (empty? remaining)
+      result
+      (recur (drop 2 remaining)
+             (assoc result (first remaining) (second remaining))))))
+
+(defn decode-value [encoded offset]
+  (let [tag (subs encoded offset (inc offset))
+        cursor (inc offset)]
+    (case tag
+      "N" [nil cursor]
+      "B" [(= "1" (subs encoded cursor (inc cursor))) (inc cursor)]
+      "K" (let [[value next] (read-frame encoded cursor)]
+              [(keyword value) next])
+      "S" (read-frame encoded cursor)
+      "I" (let [[value next] (read-frame encoded cursor)]
+              [(int/parse value) next])
+      "V" (let [[size start] (read-frame encoded cursor)]
+              (decode-items encoded start (int/parse size)))
+      "T" (let [[size start] (read-frame encoded cursor)
+                [items next] (decode-items encoded start (int/parse size))]
+              [(set items) next])
+      "M" (let [[size start] (read-frame encoded cursor)
+                [items next] (decode-items encoded start (* 2 (int/parse size)))]
+              [(items->map items) next])
+      (throw (Exception. (str "Unknown wire tag: " tag))))))
+
+(defn encode [message]
+  (str protocol-prefix (encode-value message)))
+
+(defn decode [encoded]
+  (when-not (.startsWith encoded protocol-prefix)
+    (throw (Exception. "Not an Unwired Epistemology protocol message")))
+  (first (decode-value encoded (count protocol-prefix))))
+
+(defn message? [encoded]
+  (and (string? encoded) (.startsWith encoded protocol-prefix)))

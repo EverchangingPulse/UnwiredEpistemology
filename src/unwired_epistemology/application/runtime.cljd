@@ -1,0 +1,604 @@
+(ns unwired-epistemology.application.runtime
+  (:require [unwired-epistemology.application.presentation :as presentation]
+            [unwired-epistemology.application.identity :as identity]
+            [unwired-epistemology.application.invitation :as invitation]
+            [unwired-epistemology.application.replication :as replication]
+            [unwired-epistemology.application.peer-observer :as peer-observer]
+            [unwired-epistemology.domain.questions :as questions]
+            [unwired-epistemology.domain.empathy :as empathy]
+            [unwired-epistemology.domain.room :as room]
+            [unwired-epistemology.domain.wire :as wire]
+            [unwired-epistemology.domain.voting :as voting]))
+
+(def catalogue-questions
+  [{:question/id :catalogue/knowledge-certainty
+    :question/text "Knowledge requires certainty"}
+   {:question/id :catalogue/law-and-justice
+    :question/text "A lawful action is necessarily a just action"}
+   {:question/id :catalogue/social-responsibility
+    :question/text "Society is responsible for reducing avoidable inequality"}
+   {:question/id :catalogue/free-expression
+    :question/text "Freedom of expression should protect deeply unpopular views"}])
+
+(defn initial-state []
+  {:app/screen :view.screen/home :app/position-sequence 0})
+
+(defn- recover-state [dependencies]
+  (try
+    (if-let [encoded (when (:session/load dependencies)
+                       ((:session/load dependencies)))]
+      (merge (initial-state) (wire/decode encoded))
+      (initial-state))
+    (catch dynamic error (initial-state))))
+
+(defn- persistable-state [state]
+  (dissoc state :app/discovered-peers :app/invitation-draft
+                :app/question-draft :app/empathy-draft))
+
+(defn- failed [state error]
+  (assoc state :app/screen :view.screen/error :app/error error))
+
+(declare join-requested)
+(declare transition)
+
+(defn- actor-id [state event]
+  (or (:actor/id event) (:app/local-member-id state)))
+
+(defn- queue-question [state question-id]
+  (update-in state [:app/room :room/question-queue]
+             (fn [queue]
+               (->> (conj (or queue []) question-id)
+                    distinct
+                    (sort-by str)
+                    vec))))
+
+(defn- create-room [state dependencies event]
+  (let [room-id (str "room-" ((:identity/new-member-id dependencies)))
+        creator (:ok (identity/for-room dependencies room-id))
+        result (room/create room-id
+                            (or (:room/connection-mode event)
+                                :connection.mode/dynamic)
+                            creator
+                            (or (:room/admission-mode event)
+                                :admission.mode/creator-only))]
+    (if-let [created (:ok result)]
+      (do
+        (when (and (:local/start-host! dependencies)
+                   (not= :connection.mode/strictly-remote
+                         (:room/connection-mode created)))
+          ((:local/start-host! dependencies) (:member/nickname creator)))
+        (assoc state
+               :app/screen :view.screen/room
+               :app/room created
+               :app/local-member-id (:member/id creator)))
+      (failed state (:error result)))))
+
+(defn- set-admission-mode [state actor mode]
+  (let [result (room/set-admission-mode (:app/room state)
+                                        actor
+                                        mode)]
+    (if-let [updated (:ok result)]
+      (assoc state :app/room updated)
+      (failed state (:error result)))))
+
+(defn- share-room [state dependencies sdp]
+  (let [now (.-millisecondsSinceEpoch (DateTime/now))
+        offer (invitation/create-join-offer (assoc dependencies
+                                              :remote/session-description sdp)
+                                             (:app/room state)
+                                             now 86400000)]
+    (assoc state :app/screen :view.screen/share-room
+                 :app/invitation offer)))
+
+(defn- begin-share-room [state dependencies]
+  (let [mode (get-in state [:app/room :room/connection-mode])]
+    (if (and (not= mode :connection.mode/strictly-local)
+             (:remote/create-offer! dependencies))
+      (do
+        ((:remote/create-offer! dependencies)
+         (fn [sdp]
+           ((:application/emit! dependencies)
+            {:event/type :event/webrtc-offer-ready
+             :transport/webrtc-sdp sdp})))
+        (assoc state :app/screen :view.screen/preparing-invitation))
+      (share-room state dependencies nil))))
+
+(defn- invitation-code [value]
+  (cond
+    (nil? value) ""
+    (.contains value "#") (last (.split value "#"))
+    (.contains value "/") (last (.split value "/"))
+    :else value))
+
+(defn- accepted-invitation-state [state accepted anonymous encoded]
+  (assoc state :app/screen :view.screen/share-response
+               :app/local-member-id (:member/id anonymous)
+               :app/join-offer (:invitation/offer accepted)
+               :app/join-response accepted
+               :app/accepted-invitation encoded
+               :app/anonymous-identity anonymous))
+
+(defn- accept-invitation [state dependencies value]
+  (try
+    (let [encoded (invitation-code value)
+          offer ((:invitation/decode dependencies) encoded)
+          anonymous (:ok (identity/for-room dependencies (:room/id offer)))
+          now (.-millisecondsSinceEpoch (DateTime/now))
+          result (invitation/accept-join-offer dependencies encoded now anonymous)]
+      (if-let [accepted (:ok result)]
+        (if-let [webrtc-sdp (:transport/webrtc-sdp offer)]
+          (do
+            ((:remote/accept-offer! dependencies)
+             webrtc-sdp
+             (fn [answer]
+               ((:application/emit! dependencies)
+                {:event/type :event/webrtc-answer-ready
+                 :transport/webrtc-sdp answer})))
+            (assoc state :app/screen :view.screen/preparing-response
+                         :app/accepted-invitation encoded
+                         :app/anonymous-identity anonymous))
+          (do
+          (when (and (:local/join! dependencies)
+                     (not= :connection.mode/strictly-remote
+                           (:room/connection-mode offer)))
+            ((:local/join! dependencies)
+             (:member/nickname anonymous)
+             (:invitation/response-text accepted)))
+            (accepted-invitation-state state accepted anonymous encoded)))
+        (failed state (:error result))))
+    (catch dynamic error
+      (failed state :invitation.error/unreadable-code))))
+
+(defn- complete-response [state dependencies value]
+  (try
+    (let [offer (get-in state [:app/invitation :invitation/payload])
+          encoded (invitation-code value)
+          response ((:invitation/decode dependencies) encoded)
+          result (invitation/complete-exchange dependencies offer encoded)]
+      (if-let [peer (:ok result)]
+        (do
+          (when-let [answer (:transport/webrtc-sdp response)]
+            ((:remote/complete-answer! dependencies) answer))
+          (join-requested state
+                          {:peer/id (:peer/id peer)
+                           :peer/nickname (:peer/nickname peer)
+                           :peer/public-key (:peer/public-key peer)}))
+        (failed state (:error result))))
+    (catch dynamic error
+      (failed state :invitation.error/unreadable-response))))
+
+(defn- peer-found [state event]
+  (assoc-in state [:app/discovered-peers (:peer/id event)]
+            {:peer/id (:peer/id event)
+             :peer/nickname (:peer/nickname event)
+             :peer/transports (:peer/transports event)
+             :peer/status :peer.status/reachable}))
+
+(defn- peer-lost [state event]
+  (assoc-in state [:app/discovered-peers (:peer/id event) :peer/status]
+            :peer.status/unreachable))
+
+(defn- join-requested [state event]
+  (let [request {:member/id (:peer/id event)
+                 :member/nickname (:peer/nickname event)
+                 :member/public-key (:peer/public-key event)}
+        result (room/request-join (:app/room state) request)]
+    (if-let [updated (:ok result)]
+      (assoc state :app/room updated)
+      (failed state (:error result)))))
+
+(defn- decide-join [state event decision]
+  (let [result (room/decide-join (:app/room state)
+                                 (actor-id state event)
+                                 (:member/id event)
+                                 decision)]
+    (if-let [updated (:ok result)]
+      (assoc state :app/room updated)
+      (failed state (:error result)))))
+
+(defn- remove-member [state event]
+  (let [result (room/remove-member (:app/room state)
+                                   (actor-id state event)
+                                   (:member/id event))]
+    (if-let [updated (:ok result)]
+      (if (= (:app/local-member-id state) (:member/id event))
+        (assoc (initial-state)
+               :app/admission-message "A moderator removed you from the room.")
+        (assoc state :app/room updated))
+      (failed state (:error result)))))
+
+(defn- set-moderator [state event]
+  (let [result (room/set-moderator (:app/room state)
+                                   (actor-id state event)
+                                   (:member/id event)
+                                   (:moderator/enabled? event))]
+    (if-let [updated (:ok result)]
+      (assoc state :app/room updated)
+      (failed state (:error result)))))
+
+(defn- use-catalogue-question [state event]
+  (let [selected (or (some #(when (= (:question/id %) (:question/id event)) %)
+                           catalogue-questions)
+                     (first catalogue-questions))
+        electorate (room/active-members (:app/room state))
+        actor (actor-id state event)
+        submitted (questions/submit (:question/id selected)
+                                    (:question/text selected)
+                                    actor
+                                    electorate)
+        approved (when-let [question (:ok submitted)]
+                   (questions/approve question actor))]
+    (if-let [question (:ok approved)]
+      (-> state
+          (assoc :app/screen :view.screen/question-ready
+                 :app/question question)
+          (assoc-in [:app/room :room/questions (:question/id question)] question)
+          (queue-question (:question/id question)))
+      (failed state (or (:error approved) (:error submitted))))))
+
+(defn- submit-custom-question [state event]
+  (let [member-id (actor-id state event)
+        electorate (room/active-members (:app/room state))
+        question-id (or (:question/id event)
+                        (str "question-" member-id "-"
+                             (.-microsecondsSinceEpoch (DateTime/now))))
+        result (questions/submit question-id
+                                 (or (:question/text event)
+                                     (:app/question-draft state))
+                                 member-id electorate)]
+    (if-let [question (:ok result)]
+      (-> state
+          (assoc :app/screen :view.screen/question-pending
+                 :app/question question)
+          (assoc-in [:app/room :room/questions (:question/id question)] question)
+          (queue-question (:question/id question)))
+      (failed state (:error result)))))
+
+(defn- approve-custom-question [state event]
+  (let [result (questions/approve (:app/question state)
+                                  (actor-id state event))]
+    (if-let [question (:ok result)]
+      (-> state
+          (assoc :app/screen (if (:promoted? result)
+                               :view.screen/question-ready
+                               :view.screen/question-pending)
+                 :app/question question)
+          (assoc-in [:app/room :room/questions (:question/id question)] question))
+      (failed state (:error result)))))
+
+(defn- start-vote [state event]
+  (assoc state
+         :app/screen :view.screen/voting
+         :app/vote (voting/open (get-in state [:app/question :question/id])
+                                (room/active-members (:app/room state)))))
+
+(defn- next-question [state]
+  (let [current-id (get-in state [:app/question :question/id])
+        queue (get-in state [:app/room :room/question-queue])
+        remaining (drop-while #(not= % current-id) queue)
+        next-id (second remaining)
+        question (get-in state [:app/room :room/questions next-id])]
+    (if question
+      (assoc state :app/question question
+                   :app/vote nil
+                   :app/selected-value nil
+                   :app/screen (if (= :question.status/approved
+                                      (:question/status question))
+                                 :view.screen/question-ready
+                                 :view.screen/question-pending))
+      (assoc state :app/screen :view.screen/room
+                   :app/vote nil
+                   :app/selected-value nil))))
+
+(defn- commit-received [state event]
+  (let [result (voting/commit (:app/vote state)
+                              (actor-id state event)
+                              (:vote/commitment event))]
+    (if-let [vote (:ok result)]
+      (assoc state
+             :app/screen (if (= :vote.phase/reveal-ready (:vote/phase vote))
+                           :view.screen/reveal-ready
+                           :view.screen/voting)
+             :app/vote vote)
+      (failed state (:error result)))))
+
+(defn- submit-vote [state dependencies]
+  (let [value (:app/selected-value state)
+        nonce ((:crypto/nonce dependencies))
+        commitment ((:crypto/commit dependencies) value nonce)]
+    (-> (commit-received state {:actor/id (:app/local-member-id state)
+                                :vote/commitment commitment})
+        (assoc :app/nonce nonce
+               :app/local-commitment commitment))))
+
+(defn- reveal-received [state dependencies event]
+  (let [verify (:crypto/verify dependencies)
+        result (voting/reveal (:app/vote state)
+                              (actor-id state event)
+                              (:vote/value event)
+                              (:vote/nonce event)
+                              verify)]
+    (if-let [vote (:ok result)]
+      (assoc state
+             :app/screen (if (= :vote.phase/revealed (:vote/phase vote))
+                           :view.screen/revealed
+                           :view.screen/reveal-ready)
+             :app/vote vote)
+      (failed state (:error result)))))
+
+(defn- acknowledge-reveal [state dependencies]
+  (reveal-received state dependencies
+                    {:actor/id (:app/local-member-id state)
+                     :vote/value (:app/selected-value state)
+                     :vote/nonce (:app/nonce state)}))
+
+(defn- begin-discussion [state]
+  (let [result (voting/begin-discussion (:app/vote state))]
+    (if-let [vote (:ok result)]
+      (let [updated (assoc state :app/screen :view.screen/discussion
+                                :app/vote vote)
+            target (empathy/opposite-member
+                     (:vote/positions vote) (:app/local-member-id state))]
+        (cond-> updated
+          target (assoc :app/screen :view.screen/empathy-prompt
+                        :app/empathy-target target)))
+      (failed state (:error result)))))
+
+(defn- reposition [state event]
+  (let [actor (actor-id state event)
+        sequence-number (or (:vote/sequence event)
+                            (inc (:app/position-sequence state)))
+        result (voting/reposition (:app/vote state)
+                                  actor
+                                  (:vote/value event)
+                                  sequence-number)]
+    (if-let [vote (:ok result)]
+      (let [updated (assoc state
+                           :app/vote vote
+                           :app/position-sequence
+                           (if (= actor (:app/local-member-id state))
+                             sequence-number
+                             (:app/position-sequence state)))
+            target (empathy/opposite-member
+                     (:vote/positions vote) (:app/local-member-id state))]
+        (cond-> updated
+          target (assoc :app/screen :view.screen/empathy-prompt
+                        :app/empathy-target target)))
+      (failed state (:error result)))))
+
+(defn- submit-empathy-message [state event]
+  (let [sender (actor-id state event)
+        target (:empathy/target-id event)
+        text (or (:empathy/text event) (:app/empathy-draft state))
+        result (empathy/message sender target text)]
+    (if-let [message (:ok result)]
+      (cond
+        (= (:app/local-member-id state) target)
+        (assoc state :app/screen :view.screen/empathy-received
+                     :app/empathy-message message)
+
+        (= (:app/local-member-id state) sender)
+        (assoc state :app/screen :view.screen/discussion
+                     :app/empathy-draft nil
+                     :app/empathy-target nil)
+
+        :else state)
+      (failed state (:error result)))))
+
+(defn- valid-admission-snapshot? [state message]
+  (let [offered-room-id (get-in state [:app/join-offer :room/id])
+        snapshot-room (get-in message [:message/state :app/room])
+        sender (:message/sender-id message)
+        target (:message/target-id message)
+        mode (:room/admission-mode snapshot-room)]
+    (and (= offered-room-id (:room/id snapshot-room))
+         (= :member.status/active
+            (get-in snapshot-room [:room/members target :member/status]))
+         (case mode
+           :admission.mode/creator-only (= sender (:room/creator-id snapshot-room))
+           :admission.mode/moderators (room/moderator? snapshot-room sender)
+           :admission.mode/any-member
+           (contains? (room/active-members snapshot-room) sender)
+           false))))
+
+(defn- receive-replication [state dependencies encoded]
+  (try
+    (let [message (replication/decode encoded)
+          sender (:message/sender-id message)
+          sequence-number (:message/sequence message)
+          previous (get-in state [:app/replication-sequences sender] -1)]
+      (if (<= sequence-number previous)
+        state
+        (let [accepted (assoc-in state [:app/replication-sequences sender]
+                                 sequence-number)]
+          (case (:message/type message)
+        :replication/admission-snapshot
+        (if (and (= (:app/local-member-id accepted) (:message/target-id message))
+                 (valid-admission-snapshot? accepted message))
+          (merge accepted (:message/state message)
+                 {:app/screen :view.screen/room})
+          accepted)
+
+        :replication/command
+        (if (or (= sender (get-in state [:app/room :room/creator-id]))
+                (contains? (room/active-members (:app/room state)) sender))
+          (transition accepted (:message/event message) dependencies)
+          accepted)
+
+        :replication/admission-rejected
+        (if (= (:app/local-member-id accepted) (:message/target-id message))
+          (assoc accepted :app/screen :view.screen/home
+                          :app/admission-message
+                          "The room rejected this join request.")
+          accepted)
+        accepted))))
+    (catch dynamic error state)))
+
+(defn transition
+  ([state event] (transition state event nil))
+  ([state event dependencies]
+  (case (:event/type event)
+    :event/reset (initial-state)
+    :event/create-room (create-room state dependencies event)
+    :event/set-admission-mode (set-admission-mode
+                                state (actor-id state event)
+                                (:room/admission-mode event))
+    :event/share-room (begin-share-room state dependencies)
+    :event/webrtc-offer-ready (share-room state dependencies
+                                          (:transport/webrtc-sdp event))
+    :event/webrtc-answer-ready
+    (let [encoded (:app/accepted-invitation state)
+          anonymous (:app/anonymous-identity state)
+          now (.-millisecondsSinceEpoch (DateTime/now))
+          result (invitation/accept-join-offer
+                   (assoc dependencies :remote/session-description
+                                       (:transport/webrtc-sdp event))
+                   encoded now anonymous)]
+      (if-let [accepted (:ok result)]
+        (accepted-invitation-state state accepted anonymous encoded)
+        (failed state (:error result))))
+    :event/back-to-room (assoc state :app/screen :view.screen/room)
+    :event/invitation-draft-changed (assoc state :app/invitation-draft
+                                           (:invitation/text event))
+    :event/scan-invitation (assoc state :app/screen :view.screen/scan-invitation)
+    :event/join-with-invitation (accept-invitation state dependencies
+                                                  (:app/invitation-draft state))
+    :event/qr-detected (accept-invitation state dependencies
+                                         (:invitation/text event))
+    :event/invitation-link-received (accept-invitation
+                                      state dependencies
+                                      (:invitation/text event))
+    :event/complete-join-response (complete-response
+                                    state dependencies
+                                    (:app/invitation-draft state))
+    :event/transport-payload (if (wire/message? (:transport/text event))
+                               (receive-replication state dependencies
+                                                    (:transport/text event))
+                               (complete-response state dependencies
+                                                  (:transport/text event)))
+    :event/peer-found (peer-found state event)
+    :event/peer-lost (peer-lost state event)
+    :event/join-requested (join-requested state event)
+    :event/approve-join (decide-join state event :join.decision/approve)
+    :event/reject-join (decide-join state event :join.decision/reject)
+    :event/set-moderator (set-moderator state event)
+    :event/remove-member (remove-member state event)
+    :event/use-catalogue-question (use-catalogue-question state event)
+    :event/question-draft-changed (assoc state :app/question-draft
+                                         (:question/text event))
+    :event/submit-custom-question (submit-custom-question state event)
+    :event/approve-custom-question (approve-custom-question state event)
+    :event/start-vote (start-vote state event)
+    :event/next-question (next-question state)
+    :event/select-vote (assoc state :app/selected-value (:vote/value event))
+    :event/submit-vote (submit-vote state dependencies)
+    :event/commit-received (commit-received state event)
+    :event/acknowledge-reveal (acknowledge-reveal state dependencies)
+    :event/reveal-received (reveal-received state dependencies event)
+    :event/begin-discussion (begin-discussion state)
+    :event/reposition (reposition state event)
+    :event/empathy-draft-changed (assoc state :app/empathy-draft
+                                        (:empathy/text event))
+    :event/submit-empathy-message (submit-empathy-message state event)
+    :event/close-empathy-message (assoc state :app/screen
+                                        :view.screen/discussion)
+    :event/replication-received (receive-replication
+                                  state dependencies (:transport/text event))
+    state)))
+
+(defn- outbound-event [before after event]
+  (case (:event/type event)
+    :event/submit-vote
+    {:event/type :event/commit-received
+     :vote/commitment (:app/local-commitment after)}
+
+    :event/acknowledge-reveal
+    {:event/type :event/reveal-received
+     :vote/value (:app/selected-value after)
+     :vote/nonce (:app/nonce after)}
+
+    :event/submit-custom-question
+    (assoc event :question/text (:app/question-draft before)
+                 :question/id (get-in after [:app/question :question/id]))
+
+    :event/submit-empathy-message
+    (assoc event :empathy/text (:app/empathy-draft before)
+                 :empathy/target-id (:app/empathy-target before))
+
+    :event/reposition
+    (assoc event :vote/sequence (:app/position-sequence after))
+    event))
+
+(defn start [dependencies]
+  (let [state (atom (recover-state dependencies))
+        render! (:view/render! dependencies)
+        active-dependencies (atom dependencies)
+        outbound-sequence (atom (or (:app/outbound-sequence @state) 0))]
+    (letfn [(dispatch! [event]
+              (let [before @state]
+                (swap! state transition event @active-dependencies)
+                (render! (presentation/view @state dispatch!))
+                (when (and (:transports/send! dependencies)
+                           (not= :view.screen/error (:app/screen @state)))
+                  (let [sender (:app/local-member-id @state)
+                        sequence-number (swap! outbound-sequence inc)]
+                    (cond
+                      (and (contains? #{:event/replication-received
+                                        :event/transport-payload}
+                                      (:event/type event))
+                           (wire/message? (:transport/text event))
+                           (not= (:app/replication-sequences before)
+                                 (:app/replication-sequences @state)))
+                      ((:transports/send! dependencies) (:transport/text event))
+
+                      (= :event/approve-join (:event/type event))
+                      ((:transports/send! dependencies)
+                       (replication/encode
+                         (replication/admission-snapshot
+                           sender sequence-number (:member/id event) @state)))
+
+                      (= :event/reject-join (:event/type event))
+                      ((:transports/send! dependencies)
+                       (replication/encode
+                         (replication/admission-rejected
+                           sender sequence-number (:member/id event))))
+
+                      (or (replication/replicable? event)
+                          (contains? #{:event/submit-vote
+                                       :event/acknowledge-reveal}
+                                     (:event/type event)))
+                      ((:transports/send! dependencies)
+                       (replication/encode
+                         (replication/command
+                           sender sequence-number
+                           (outbound-event before @state event)))))))
+                (swap! state assoc :app/outbound-sequence @outbound-sequence)
+                (when (:session/save! dependencies)
+                  ((:session/save! dependencies)
+                   (wire/encode (persistable-state @state))))))]
+      (reset! active-dependencies
+              (assoc dependencies :application/emit! dispatch!))
+      (render! (presentation/view @state dispatch!))
+      (when (and (:app/room @state) (:local/start-host! dependencies))
+        (when-let [nickname (get-in @state [:app/room :room/members
+                                            (:app/local-member-id @state)
+                                            :member/nickname])]
+          ((:local/start-host! dependencies) nickname)))
+      (when-let [initial (:links/initial dependencies)]
+        (dispatch! {:event/type :event/invitation-link-received
+                    :invitation/text initial}))
+      (let [peer-unsubscribe (when (:peers/subscribe! dependencies)
+                               (peer-observer/start! dependencies dispatch!))
+            link-unsubscribe (when (:links/subscribe! dependencies)
+                               ((:links/subscribe! dependencies)
+                                #(dispatch! {:event/type :event/invitation-link-received
+                                             :invitation/text %})))]
+        {:application/dispatch! dispatch!
+         :application/state state
+         :application/stop! (fn []
+                              (when peer-unsubscribe (peer-unsubscribe))
+                              (when link-unsubscribe (link-unsubscribe))
+                              (when (:local/stop! dependencies)
+                                ((:local/stop! dependencies)))
+                              (when (:remote/stop! dependencies)
+                                ((:remote/stop! dependencies))))}))))

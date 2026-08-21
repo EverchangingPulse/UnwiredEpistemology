@@ -1,0 +1,34 @@
+(ns unwired-epistemology.domain.empathy-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [unwired-epistemology.domain.empathy :as empathy]))
+
+(deftest detects-only-exact-oppositions
+  (testing "allowed pairs"
+    (is (empathy/opposing? 1 7))
+    (is (empathy/opposing? 7 1))
+    (is (empathy/opposing? 2 6)))
+  (testing "excluded pairs"
+    (is (not (empathy/opposing? 3 5)))
+    (is (not (empathy/opposing? 1 6)))
+    (is (not (empathy/opposing? 4 4)))))
+
+(deftest produces-deterministic-unique-pairings
+  (is (= [{:pair/left-id :a
+           :pair/right-id :b
+           :pair/values #{1 7}}
+          {:pair/left-id :c
+           :pair/right-id :d
+           :pair/values #{2 6}}]
+         (empathy/pairings {:d 6 :c 2 :a 1 :b 7}))))
+
+(deftest resolves-target-and-validates-private-message
+  (let [positions {:peer/owl 1 :peer/fox 7 :peer/otter 4}]
+    (is (= :peer/fox (empathy/opposite-member positions :peer/owl)))
+    (is (= {:empathy/sender-id :peer/owl
+            :empathy/target-id :peer/fox
+            :empathy/text "They may prioritize harm prevention"}
+           (:ok (empathy/message
+                  :peer/owl :peer/fox
+                  "They may prioritize harm prevention"))))
+    (is (= :empathy.error/invalid-message
+           (:error (empathy/message :peer/owl :peer/owl "same"))))))

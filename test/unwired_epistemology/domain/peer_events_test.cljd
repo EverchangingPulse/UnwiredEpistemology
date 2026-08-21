@@ -1,0 +1,31 @@
+(ns unwired-epistemology.domain.peer-events-test
+  (:require [clojure.test :refer [deftest is]]
+            [unwired-epistemology.domain.peer-events :as peer-events]))
+
+(def first-event
+  {:message/id :message-1
+   :message/sequence 1
+   :peer/id :peer-1
+   :peer/event :peer.event/connected})
+
+(deftest rejects-duplicate-and-stale-events
+  (let [accepted (:ok (peer-events/accept (peer-events/empty-log)
+                                          first-event))]
+    (is (= :peer-event.error/duplicate
+           (:error (peer-events/accept accepted first-event))))
+    (is (= :peer-event.error/stale
+           (:error (peer-events/accept
+                     accepted
+                     (assoc first-event
+                            :message/id :message-2
+                            :message/sequence 0)))))))
+
+(deftest sequences-are-independent-per-peer
+  (let [accepted (:ok (peer-events/accept (peer-events/empty-log)
+                                          first-event))]
+    (is (:ok (peer-events/accept
+               accepted
+               {:message/id :message-2
+                :message/sequence 0
+                :peer/id :peer-2
+                :peer/event :peer.event/connected})))))

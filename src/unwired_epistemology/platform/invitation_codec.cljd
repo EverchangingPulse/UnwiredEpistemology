@@ -1,0 +1,109 @@
+(ns unwired-epistemology.platform.invitation-codec
+  (:require ["dart:convert" :as convert]
+            ["dart:io" :as io]
+            ["dart:math" :as math]
+            ["package:crypto/crypto.dart" :as crypto]))
+
+(def kind->wire {:invitation.kind/join-offer "O"
+                 :invitation.kind/join-response "R"})
+(def wire->kind {"O" :invitation.kind/join-offer
+                 "R" :invitation.kind/join-response})
+(def mode->wire {:connection.mode/strictly-local "L"
+                 :connection.mode/strictly-remote "R"
+                 :connection.mode/dynamic "D"})
+(def wire->mode {"L" :connection.mode/strictly-local
+                 "R" :connection.mode/strictly-remote
+                 "D" :connection.mode/dynamic})
+
+(defn- pad-byte [value]
+  (let [encoded (.toRadixString value 16)]
+    (if (= 1 (count encoded)) (str "0" encoded) encoded)))
+
+(defn- hex-encode [value]
+  (apply str (map pad-byte (convert/utf8.encode (str value)))))
+
+(defn- hex-decode [value]
+  (let [pairs (map (fn [offset] (subs value offset (+ offset 2)))
+                   (range 0 (count value) 2))
+        bytes (mapv #(int/parse % .radix 16) pairs)]
+    (convert/utf8.decode bytes)))
+
+(defn- compressed-hex [value]
+  (apply str (map pad-byte (io/gzip.encode (convert/utf8.encode value)))))
+
+(defn- compressed-unhex [value]
+  (let [pairs (map (fn [offset] (subs value offset (+ offset 2)))
+                   (range 0 (count value) 2))
+        bytes (mapv #(int/parse % .radix 16) pairs)]
+    (convert/utf8.decode (io/gzip.decode bytes))))
+
+(defn- keyword-wire [value] (hex-encode (subs (str value) 1)))
+(defn- wire-keyword [value] (keyword (hex-decode value)))
+
+(defn encode [payload]
+  (let [kind (:invitation/kind payload)]
+    (case kind
+      :invitation.kind/join-offer
+      (apply str [(str (:invitation/version payload)) (get kind->wire kind)
+                  (keyword-wire (:room/id payload)) "F"
+                  (keyword-wire (:room/creator-id payload)) "F"
+                  (get mode->wire (:room/connection-mode payload)) "F"
+                  (hex-encode (:peer/public-key payload)) "F"
+                  (hex-encode (:invitation/nonce payload)) "F"
+                  (str (:invitation/expires-at payload)) "F"
+                  (if-let [sdp (:transport/webrtc-sdp payload)]
+                    (compressed-hex sdp) "")])
+      :invitation.kind/join-response
+      (apply str [(str (:invitation/version payload)) (get kind->wire kind)
+                  (keyword-wire (:room/id payload)) "F"
+                  (keyword-wire (:peer/id payload)) "F"
+                  (hex-encode (:peer/nickname payload)) "F"
+                  (hex-encode (:peer/public-key payload)) "F"
+                  (hex-encode (:invitation/offer-nonce payload)) "F"
+                  (hex-encode (:invitation/nonce payload)) "F"
+                  (if-let [sdp (:transport/webrtc-sdp payload)]
+                    (compressed-hex sdp) "")])
+      (throw (Exception. "Unsupported invitation kind")))))
+
+(defn decode [encoded]
+  (let [version (int/parse (subs encoded 0 1))
+        kind (get wire->kind (subs encoded 1 2))
+        fields (.split (subs encoded 2) "F")]
+    (case kind
+      :invitation.kind/join-offer
+      (cond-> {:invitation/version version :invitation/kind kind
+       :room/id (wire-keyword (nth fields 0))
+       :room/creator-id (wire-keyword (nth fields 1))
+       :room/connection-mode (get wire->mode (nth fields 2))
+       :peer/public-key (hex-decode (nth fields 3))
+       :invitation/nonce (hex-decode (nth fields 4))
+               :invitation/expires-at (int/parse (nth fields 5))}
+        (seq (nth fields 6 ""))
+        (assoc :transport/webrtc-sdp (compressed-unhex (nth fields 6))))
+      :invitation.kind/join-response
+      (cond-> {:invitation/version version :invitation/kind kind
+       :room/id (wire-keyword (nth fields 0))
+       :peer/id (wire-keyword (nth fields 1))
+       :peer/nickname (hex-decode (nth fields 2))
+       :peer/public-key (hex-decode (nth fields 3))
+       :invitation/offer-nonce (hex-decode (nth fields 4))
+               :invitation/nonce (hex-decode (nth fields 5))}
+        (seq (nth fields 6 ""))
+        (assoc :transport/webrtc-sdp (compressed-unhex (nth fields 6))))
+      (throw (Exception. "Unsupported invitation payload")))))
+
+(defn url [payload]
+  (str "unwiredepistemology://join/" (encode payload)))
+
+(defn commitment [value nonce]
+  (str (.convert crypto/sha256
+                 (convert/utf8.encode (str value ":" nonce)))))
+
+(defn ports []
+  (let [random (math/Random.secure)]
+    {:invitation/encode encode :invitation/decode decode :invitation/url url
+     :crypto/public-key #(str "device-" (.nextInt random 2147483647))
+     :crypto/commit commitment
+     :crypto/verify #(= %1 (commitment %2 %3))
+     :crypto/nonce #(str (.nextInt random 2147483647)
+                         (.nextInt random 2147483647))}))

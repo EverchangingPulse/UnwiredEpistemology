@@ -1,0 +1,22 @@
+(ns unwired-epistemology.application.peer-observer-test
+  (:require [clojure.test :refer [deftest is]]
+            [unwired-epistemology.application.peer-observer :as observer]))
+
+(deftest publishes-accepted-events-and-unsubscribes
+  (let [observed (atom nil)
+        active? (atom true)
+        consumed (atom [])
+        subscribe! (fn [receive!]
+                     (reset! observed receive!)
+                     #(reset! active? false))
+        unsubscribe! (observer/start! {:peers/subscribe! subscribe!}
+                                      #(swap! consumed conj %))
+        event {:message/id :message-1
+               :message/sequence 0
+               :peer/id :peer-1
+               :peer/event :peer.event/connected}]
+    (when @active? (@observed event))
+    (when @active? (@observed event))
+    (unsubscribe!)
+    (when @active? (@observed (assoc event :message/id :message-2)))
+    (is (= [event] @consumed))))

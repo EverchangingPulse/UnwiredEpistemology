@@ -1,0 +1,18 @@
+(ns unwired-epistemology.domain.likert)
+
+(def values #{1 2 3 4 5 6 7})
+
+(def labels
+  {1 :likert/strongly-disagree
+   2 :likert/disagree
+   3 :likert/slightly-disagree
+   4 :likert/neutral
+   5 :likert/slightly-agree
+   6 :likert/agree
+   7 :likert/strongly-agree})
+
+(defn valid? [value]
+  (contains? values value))
+
+(defn label [value]
+  (get labels value))

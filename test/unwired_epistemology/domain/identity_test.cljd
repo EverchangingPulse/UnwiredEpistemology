@@ -1,0 +1,11 @@
+(ns unwired-epistemology.domain.identity-test
+  (:require [clojure.test :refer [deftest is]]
+            [unwired-epistemology.domain.identity :as identity]))
+
+(deftest generates-only-neutral-catalogue-nicknames
+  (is (= {:member/id :peer/a :member/nickname "Curious Heron"}
+         (:ok (identity/generate :peer/a 2 4)))))
+
+(deftest wraps-entropy-indices-without-failing
+  (is (= "Anonymous Owl"
+         (:member/nickname (:ok (identity/generate :peer/a 12 12))))))

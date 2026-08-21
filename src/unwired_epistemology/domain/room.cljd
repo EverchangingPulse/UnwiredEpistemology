@@ -1,0 +1,183 @@
+(ns unwired-epistemology.domain.room)
+
+(def connection-modes
+  #{:connection.mode/strictly-local
+    :connection.mode/strictly-remote
+    :connection.mode/dynamic})
+
+(def admission-modes
+  #{:admission.mode/creator-only
+    :admission.mode/moderators
+    :admission.mode/any-member})
+
+(defn create
+  ([room-id connection-mode]
+   (create room-id connection-mode nil :admission.mode/creator-only))
+  ([room-id connection-mode creator admission-mode]
+   (cond
+     (not (contains? connection-modes connection-mode))
+     {:error :room.error/invalid-connection-mode}
+
+     (not (contains? admission-modes admission-mode))
+     {:error :room.error/invalid-admission-mode}
+
+     :else
+     {:ok {:room/id room-id
+           :room/connection-mode connection-mode
+           :room/admission-mode admission-mode
+           :room/creator-id (:member/id creator)
+           :room/moderator-ids #{}
+           :room/members (if creator
+                           {(:member/id creator)
+                            (assoc creator :member/status :member.status/active)}
+                           {})
+           :room/pending-joins {}
+           :room/rejected-joins {}
+           :room/removed-member-ids #{}
+           :room/audit-log []
+           :room/questions {}
+           :room/question-queue []
+           :room/active-vote nil}})))
+
+(defn join [room member-id nickname]
+  (if (and (seq nickname) (not (contains? (:room/members room) member-id)))
+    {:ok (assoc-in room [:room/members member-id]
+                   {:member/id member-id
+                    :member/nickname nickname
+                    :member/status :member.status/active})}
+    {:error :room.error/invalid-member}))
+
+(defn active-members [room]
+  (->> (:room/members room)
+       (keep (fn [[member-id member]]
+               (when (= :member.status/active (:member/status member))
+                 member-id)))
+       set))
+
+(defn- audit [room event]
+  (update room :room/audit-log conj event))
+
+(defn request-join [room request]
+  (let [member-id (:member/id request)]
+    (cond
+      (or (nil? member-id) (not (seq (:member/nickname request))))
+      {:error :room.error/invalid-join-request}
+
+      (contains? (:room/members room) member-id)
+      {:error :room.error/already-member}
+
+      (contains? (:room/pending-joins room) member-id)
+      {:error :room.error/request-already-pending}
+
+      :else
+      {:ok (-> room
+               (assoc-in [:room/pending-joins member-id]
+                         (assoc request :join/status :join.status/pending))
+               (audit {:audit/type :audit/join-requested
+                       :member/id member-id}))})))
+
+(defn moderator? [room member-id]
+  (or (= (:room/creator-id room) member-id)
+      (contains? (:room/moderator-ids room) member-id)))
+
+(defn set-admission-mode [room actor-id admission-mode]
+  (cond
+    (not= (:room/creator-id room) actor-id)
+    {:error :room.error/not-creator}
+
+    (not (contains? admission-modes admission-mode))
+    {:error :room.error/invalid-admission-mode}
+
+    :else
+    {:ok (-> room
+             (assoc :room/admission-mode admission-mode)
+             (audit {:audit/type :audit/admission-mode-changed
+                     :actor/id actor-id
+                     :room/admission-mode admission-mode}))}))
+
+(defn admission-approver? [room member-id]
+  (case (:room/admission-mode room)
+    :admission.mode/creator-only (= (:room/creator-id room) member-id)
+    :admission.mode/moderators (moderator? room member-id)
+    :admission.mode/any-member (contains? (active-members room) member-id)
+    false))
+
+(defn decide-join [room approver-id member-id decision]
+  (let [request (or (get-in room [:room/pending-joins member-id])
+                    (get-in room [:room/rejected-joins member-id]))
+        active? (contains? (active-members room) member-id)]
+    (cond
+      (not (admission-approver? room approver-id))
+      {:error :room.error/not-admission-approver}
+
+      active?
+      {:ok room}
+
+      (nil? request)
+      {:error :room.error/join-request-not-found}
+
+      (not (contains? #{:join.decision/approve :join.decision/reject} decision))
+      {:error :room.error/invalid-join-decision}
+
+      (= :join.decision/reject decision)
+      {:ok (-> room
+               (update :room/pending-joins dissoc member-id)
+               (assoc-in [:room/rejected-joins member-id] request)
+               (audit {:audit/type :audit/join-rejected
+                       :member/id member-id
+                       :approver/id approver-id}))}
+
+      :else
+      {:ok (-> room
+               (update :room/pending-joins dissoc member-id)
+               (update :room/rejected-joins dissoc member-id)
+               (assoc-in [:room/members member-id]
+                         (-> request
+                             (dissoc :join/status)
+                             (assoc :member/status :member.status/active)))
+               (update :room/removed-member-ids disj member-id)
+               (audit {:audit/type :audit/join-approved
+                       :member/id member-id
+                       :approver/id approver-id}))})))
+
+(defn set-moderator [room actor-id member-id enabled?]
+  (cond
+    (not= (:room/creator-id room) actor-id)
+    {:error :room.error/not-creator}
+
+    (not (contains? (active-members room) member-id))
+    {:error :room.error/member-not-active}
+
+    (= (:room/creator-id room) member-id)
+    {:error :room.error/creator-role-is-fixed}
+
+    :else
+    {:ok (-> room
+             (update :room/moderator-ids
+                     (if enabled? conj disj)
+                     member-id)
+             (audit {:audit/type (if enabled?
+                                   :audit/moderator-granted
+                                   :audit/moderator-revoked)
+                     :member/id member-id
+                     :actor/id actor-id}))}))
+
+(defn remove-member [room actor-id member-id]
+  (cond
+    (not (moderator? room actor-id))
+    {:error :room.error/not-moderator}
+
+    (= (:room/creator-id room) member-id)
+    {:error :room.error/creator-cannot-be-removed}
+
+    (not (contains? (:room/members room) member-id))
+    {:error :room.error/member-not-found}
+
+    :else
+    {:ok (-> room
+             (update :room/members dissoc member-id)
+             (update :room/moderator-ids disj member-id)
+             (update :room/removed-member-ids conj member-id)
+             (audit {:audit/type :audit/member-removed
+                     :member/id member-id
+                     :actor/id actor-id}))}))

@@ -1,0 +1,100 @@
+(ns unwired-epistemology.application.replicated-runtime-test
+  (:require [clojure.test :refer [deftest is]]
+            [unwired-epistemology.application.replication :as replication]
+            [unwired-epistemology.application.runtime :as runtime]
+            [unwired-epistemology.domain.room :as room]
+            [unwired-epistemology.domain.voting :as voting]))
+
+(def creator {:member/id :peer/creator :member/nickname "Quiet Owl"})
+(def joiner {:member/id :peer/joiner :member/nickname "Curious Fox"
+             :member/public-key "joiner-key"})
+
+(def crypto-ports
+  {:crypto/verify (fn [commitment value nonce]
+                    (= commitment (str value ":" nonce)))})
+
+(defn admitted-room []
+  (let [created (:ok (room/create :room/one :connection.mode/dynamic
+                                  creator :admission.mode/creator-only))
+        requested (:ok (room/request-join created joiner))]
+    (:ok (room/decide-join requested :peer/creator :peer/joiner
+                           :join.decision/approve))))
+
+(defn voting-state [local-id]
+  {:app/screen :view.screen/voting
+   :app/local-member-id local-id
+   :app/position-sequence 0
+   :app/room (admitted-room)
+   :app/question {:question/id :question/one :question/text "A claim"}
+   :app/vote (voting/open :question/one #{:peer/creator :peer/joiner})})
+
+(deftest commitments-replicate-without-leaking-positions
+  (let [creator-commit (runtime/transition
+                         (voting-state :peer/creator)
+                         {:event/type :event/commit-received
+                          :actor/id :peer/creator
+                          :vote/commitment "7:creator-nonce"}
+                         crypto-ports)
+        complete (runtime/transition
+                   creator-commit
+                   {:event/type :event/commit-received
+                    :actor/id :peer/joiner
+                    :vote/commitment "1:joiner-nonce"}
+                   crypto-ports)]
+    (is (empty? (get-in creator-commit [:app/vote :vote/positions])))
+    (is (= :vote.phase/reveal-ready
+           (get-in complete [:app/vote :vote/phase])))
+    (is (empty? (get-in complete [:app/vote :vote/reveals])))))
+
+(deftest reveal-and-live-reposition-converge-through-domain-reducer
+  (let [committed (-> (voting-state :peer/creator)
+                      (runtime/transition
+                        {:event/type :event/commit-received
+                         :actor/id :peer/creator
+                         :vote/commitment "7:creator-nonce"}
+                        crypto-ports)
+                      (runtime/transition
+                        {:event/type :event/commit-received
+                         :actor/id :peer/joiner
+                         :vote/commitment "1:joiner-nonce"}
+                        crypto-ports))
+        revealed (-> committed
+                     (runtime/transition
+                       {:event/type :event/reveal-received
+                        :actor/id :peer/creator :vote/value 7
+                        :vote/nonce "creator-nonce"} crypto-ports)
+                     (runtime/transition
+                       {:event/type :event/reveal-received
+                        :actor/id :peer/joiner :vote/value 1
+                        :vote/nonce "joiner-nonce"} crypto-ports))
+        discussing (runtime/transition revealed
+                                      {:event/type :event/begin-discussion
+                                       :actor/id :peer/creator}
+                                      crypto-ports)
+        moved (runtime/transition discussing
+                                  {:event/type :event/reposition
+                                   :actor/id :peer/joiner
+                                   :vote/value 2 :vote/sequence 1}
+                                  crypto-ports)]
+    (is (= { :peer/creator 7 :peer/joiner 1}
+           (get-in revealed [:app/vote :vote/positions])))
+    (is (= 2 (get-in moved [:app/vote :vote/positions :peer/joiner])))))
+
+(deftest admission-snapshot-bootstraps-only-the-target-peer
+  (let [creator-state {:app/screen :view.screen/room
+                       :app/local-member-id :peer/creator
+                       :app/room (admitted-room)}
+        encoded (replication/encode
+                  (replication/admission-snapshot
+                    :peer/creator 1 :peer/joiner creator-state))
+        joiner-state (runtime/transition
+                       {:app/screen :view.screen/share-response
+                        :app/local-member-id :peer/joiner
+                        :app/join-offer {:room/id :room/one}
+                        :app/position-sequence 0}
+                       {:event/type :event/replication-received
+                        :transport/text encoded}
+                       crypto-ports)]
+    (is (= :view.screen/room (:app/screen joiner-state)))
+    (is (= #{:peer/creator :peer/joiner}
+           (room/active-members (:app/room joiner-state))))))

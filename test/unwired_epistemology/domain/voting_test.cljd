@@ -1,0 +1,34 @@
+(ns unwired-epistemology.domain.voting-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [unwired-epistemology.domain.voting :as voting]))
+
+(defn verify [commitment value nonce]
+  (= commitment (str value ":" nonce)))
+
+(deftest becomes-ready-on-final-commitment
+  (let [opened (voting/open :q1 #{:a :b})
+        first-result (voting/commit opened :a "1:n1")
+        final-result (voting/commit (:ok first-result) :b "7:n2")]
+    (is (= :vote.phase/voting (:vote/phase (:ok first-result))))
+    (is (= :vote.phase/reveal-ready (:vote/phase (:ok final-result))))
+    (is (= [{:effect/type :effect/show-reveal-ready}]
+           (:effects final-result)))))
+
+(deftest reveal-requires-valid-commitment
+  (let [ready (:ok (-> (voting/open :q1 #{:a})
+                       (voting/commit :a "6:secret")))]
+    (testing "mismatch"
+      (is (= :vote.error/commitment-mismatch
+             (:error (voting/reveal ready :a 7 "secret" verify)))))
+    (testing "match"
+      (let [revealed (:ok (voting/reveal ready :a 6 "secret" verify))]
+        (is (= :vote.phase/revealed (:vote/phase revealed)))
+        (is (= {:a 6} (:vote/positions revealed)))))))
+
+(deftest stale-reposition-cannot-overwrite-newer-state
+  (let [discussing (assoc (voting/open :q1 #{:a})
+                          :vote/phase :vote.phase/discussion)
+        newest (:ok (voting/reposition discussing :a 7 2))]
+    (is (= :vote.error/stale-position
+           (:error (voting/reposition newest :a 1 1))))
+    (is (= 7 (get-in newest [:vote/positions :a])))))

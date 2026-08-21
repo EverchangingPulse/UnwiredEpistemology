@@ -1,0 +1,11 @@
+(ns unwired-epistemology.application.peer-observer
+  (:require [unwired-epistemology.domain.peer-events :as peer-events]))
+
+(defn start! [dependencies consume!]
+  (let [event-log (atom (peer-events/empty-log))
+        observe! (fn [event]
+                   (let [result (peer-events/accept @event-log event)]
+                     (when-let [accepted (:ok result)]
+                       (reset! event-log accepted)
+                       (consume! (:event result)))))]
+    ((:peers/subscribe! dependencies) observe!)))

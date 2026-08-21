@@ -1,0 +1,114 @@
+(ns unwired-epistemology.application.runtime-test
+  (:require [clojure.test :refer [deftest is]]
+            [unwired-epistemology.application.runtime :as application]))
+
+(defn dependencies [render!]
+  {:view/render! render!
+   :identity/load (constantly nil)
+   :identity/save! (fn [_ _] nil)
+   :identity/new-member-id (constantly :local)
+   :identity/random-index (constantly 0)
+   :crypto/nonce (constantly "nonce")
+   :crypto/commit (fn [value nonce] (str value ":" nonce))
+   :crypto/verify (fn [commitment value nonce]
+                    (= commitment (str value ":" nonce)))})
+
+(deftest business-application-drives-complete-local-cycle
+  (let [rendered (atom [])
+        running (application/start (dependencies #(swap! rendered conj %)))
+        dispatch! (:application/dispatch! running)]
+    (dispatch! {:event/type :event/create-room})
+    (dispatch! {:event/type :event/use-catalogue-question})
+    (dispatch! {:event/type :event/start-vote})
+    (dispatch! {:event/type :event/select-vote :vote/value 6})
+    (dispatch! {:event/type :event/submit-vote})
+    (is (= :view.screen/reveal-ready (:view/screen (last @rendered))))
+    (dispatch! {:event/type :event/acknowledge-reveal})
+    (is (= :view.screen/revealed (:view/screen (last @rendered))))
+    (dispatch! {:event/type :event/begin-discussion})
+    (dispatch! {:event/type :event/reposition :vote/value 7})
+    (is (= :view.screen/discussion (:view/screen (last @rendered))))
+    (is (= 7
+           (get-in @(:application/state running)
+                   [:app/vote :vote/positions :local])))))
+
+(deftest graphical-events-are-callbacks-owned-by-application
+  (let [rendered (atom nil)
+        running (application/start (dependencies #(reset! rendered %)))]
+    ((:view/dispatch! @rendered) {:event/type :event/create-room})
+    (is (= :view.screen/room (:view/screen @rendered)))
+    (is (= (:view/dispatch! @rendered)
+           (:application/dispatch! running)))))
+
+(deftest room-cycle-uses-the-generated-member-identity
+  (let [rendered (atom nil)
+        ports (assoc (dependencies #(reset! rendered %))
+                     :identity/new-member-id (constantly :peer/generated))
+        running (application/start ports)
+        dispatch! (:application/dispatch! running)]
+    (dispatch! {:event/type :event/create-room})
+    (dispatch! {:event/type :event/use-catalogue-question})
+    (dispatch! {:event/type :event/start-vote})
+    (dispatch! {:event/type :event/select-vote :vote/value 5})
+    (dispatch! {:event/type :event/submit-vote})
+    (is (= :view.screen/reveal-ready (:view/screen @rendered)))
+    (is (contains? (get-in @(:application/state running)
+                           [:app/vote :vote/commitments])
+                   :peer/generated))))
+
+(deftest custom-question-stays-behind-approval-before-voting
+  (let [rendered (atom nil)
+        running (application/start (dependencies #(reset! rendered %)))
+        dispatch! (:application/dispatch! running)]
+    (dispatch! {:event/type :event/create-room})
+    (dispatch! {:event/type :event/question-draft-changed
+                :question/text "Certainty is necessary"})
+    (dispatch! {:event/type :event/submit-custom-question})
+    (is (= :view.screen/question-pending (:view/screen @rendered)))
+    (dispatch! {:event/type :event/approve-custom-question})
+    (is (= :view.screen/question-ready (:view/screen @rendered)))
+    (is (= :question.status/approved
+           (get-in @(:application/state running)
+                   [:app/question :question/status])))))
+
+(deftest creator-selects-connection-and-admission-modes
+  (let [running (application/start (dependencies (fn [_] nil)))
+        dispatch! (:application/dispatch! running)]
+    (dispatch! {:event/type :event/create-room
+                :room/connection-mode :connection.mode/strictly-local})
+    (dispatch! {:event/type :event/set-admission-mode
+                :room/admission-mode :admission.mode/any-member})
+    (is (= :connection.mode/strictly-local
+           (get-in @(:application/state running)
+                   [:app/room :room/connection-mode])))
+    (is (= :admission.mode/any-member
+           (get-in @(:application/state running)
+                   [:app/room :room/admission-mode])))))
+
+(deftest observed-peer-request-is-visible-and-can-be-approved
+  (let [observer (atom nil)
+        rendered (atom nil)
+        ports (assoc (dependencies #(reset! rendered %))
+                     :peers/subscribe! (fn [observe!]
+                                         (reset! observer observe!)
+                                         (fn [] (reset! observer nil))))
+        running (application/start ports)
+        dispatch! (:application/dispatch! running)]
+    (dispatch! {:event/type :event/create-room})
+    (@observer {:event/type :event/join-requested
+                :message/id :message/one
+                :message/sequence 1
+                :peer/id :peer/remote
+                :peer/nickname "Curious Fox"
+                :peer/public-key "remote-key"})
+    (is (= :join.status/pending
+           (get-in @(:application/state running)
+                   [:app/room :room/pending-joins
+                    :peer/remote :join/status])))
+    (dispatch! {:event/type :event/approve-join :member/id :peer/remote})
+    (is (= :member.status/active
+           (get-in @(:application/state running)
+                   [:app/room :room/members
+                    :peer/remote :member/status])))
+    ((:application/stop! running))
+    (is (nil? @observer))))
