@@ -45,14 +45,24 @@
         :view.screen/home
         {:view/heading "P2P Spectrum"
          :view/status "Choose how peers may connect"
+         :view/inputs [{:input/label "Paste a room code or invitation link"
+                        :input/value (:app/invitation-draft state)
+                        :input/event-type :event/invitation-draft-changed
+                        :input/value-key :invitation/text}]
          :view/actions
-         (mapv (fn [[mode label]]
-                 (action (str "Create " label " room")
-                         {:event/type :event/create-room
-                          :room/connection-mode mode}))
-               [[:connection.mode/dynamic "Dynamic"]
-                [:connection.mode/strictly-local "Local-only"]
-                [:connection.mode/strictly-remote "Remote-only"]])}
+         (into [(action "Scan invitation QR"
+                        {:event/type :event/scan-invitation})]
+               (concat
+                 (when (seq (:app/invitation-draft state))
+                   [(action "Request to join room"
+                            {:event/type :event/join-with-invitation})])
+                 (map (fn [[mode label]]
+                        (action (str "Create " label " room")
+                                {:event/type :event/create-room
+                                 :room/connection-mode mode}))
+                      [[:connection.mode/dynamic "Dynamic"]
+                       [:connection.mode/strictly-local "Local-only"]
+                       [:connection.mode/strictly-remote "Remote-only"]])))}
 
         :view.screen/room
         {:view/heading (str nickname "'s room")
@@ -69,12 +79,19 @@
          :view/inputs [{:input/label "Write a claim for room approval"
                         :input/value (:app/question-draft state)
                         :input/event-type :event/question-draft-changed
-                        :input/value-key :question/text}]
+                        :input/value-key :question/text}
+                       {:input/label "Paste a returned join-response code"
+                        :input/value (:app/invitation-draft state)
+                        :input/event-type :event/invitation-draft-changed
+                        :input/value-key :invitation/text}]
          :view/actions (cond->
                          [(action "Invite people (code, link or QR)"
                                   {:event/type :event/share-room})
                           (action "Use catalogue question"
                                   {:event/type :event/use-catalogue-question})]
+                         (seq (:app/invitation-draft state))
+                         (conj (action "Open returned join request"
+                                       {:event/type :event/complete-join-response}))
                          (seq (:app/question-draft state))
                          (conj (action "Submit claim for approval"
                                        {:event/type :event/submit-custom-question}))
@@ -98,6 +115,25 @@
                                              {:event/type :event/reject-join
                                               :member/id (:member/id request)})])
                                   pending))))}
+
+        :view.screen/scan-invitation
+        {:view/heading "Scan a room invitation"
+         :view/status "Point the camera at the room QR code"
+         :view/scanner {:scanner/event-type :event/qr-detected}
+         :view/actions [(action "Cancel" {:event/type :event/reset})]}
+
+        :view.screen/share-response
+        {:view/heading "Return this response to the room"
+         :view/status "The room must approve your request before you join"
+         :view/details ["Share this response with an existing room member."]
+         :view/share {:share/code (get-in state [:app/join-response
+                                                 :invitation/response-text])
+                      :share/url (str "unwiredepistemology://response/"
+                                      (get-in state [:app/join-response
+                                                     :invitation/response-text]))
+                      :share/qr (get-in state [:app/join-response
+                                               :invitation/response-text])}
+         :view/actions [(action "Return home" {:event/type :event/reset})]}
 
         :view.screen/share-room
         {:view/heading "Invite people to this room"

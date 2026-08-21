@@ -17,6 +17,8 @@
 (defn- failed [state error]
   (assoc state :app/screen :view.screen/error :app/error error))
 
+(declare join-requested)
+
 (defn- create-room [state dependencies event]
   (let [room-id :room/local-preview
         creator (:ok (identity/for-room dependencies room-id))
@@ -27,10 +29,15 @@
                             (or (:room/admission-mode event)
                                 :admission.mode/creator-only))]
     (if-let [created (:ok result)]
-      (assoc state
-             :app/screen :view.screen/room
-             :app/room created
-             :app/local-member-id (:member/id creator))
+      (do
+        (when (and (:local/start-host! dependencies)
+                   (not= :connection.mode/strictly-remote
+                         (:room/connection-mode created)))
+          ((:local/start-host! dependencies) (:member/nickname creator)))
+        (assoc state
+               :app/screen :view.screen/room
+               :app/room created
+               :app/local-member-id (:member/id creator)))
       (failed state (:error result)))))
 
 (defn- set-admission-mode [state mode]
@@ -48,6 +55,50 @@
                                              now 86400000)]
     (assoc state :app/screen :view.screen/share-room
                  :app/invitation offer)))
+
+(defn- invitation-code [value]
+  (cond
+    (nil? value) ""
+    (.contains value "#") (last (.split value "#"))
+    (.contains value "/") (last (.split value "/"))
+    :else value))
+
+(defn- accept-invitation [state dependencies value]
+  (try
+    (let [encoded (invitation-code value)
+          offer ((:invitation/decode dependencies) encoded)
+          anonymous (:ok (identity/for-room dependencies (:room/id offer)))
+          now (.-millisecondsSinceEpoch (DateTime/now))
+          result (invitation/accept-join-offer dependencies encoded now anonymous)]
+      (if-let [accepted (:ok result)]
+        (do
+          (when (and (:local/join! dependencies)
+                     (not= :connection.mode/strictly-remote
+                           (:room/connection-mode offer)))
+            ((:local/join! dependencies)
+             (:member/nickname anonymous)
+             (:invitation/response-text accepted)))
+          (assoc state :app/screen :view.screen/share-response
+                       :app/local-member-id (:member/id anonymous)
+                       :app/join-offer (:invitation/offer accepted)
+                       :app/join-response accepted))
+        (failed state (:error result))))
+    (catch dynamic error
+      (failed state :invitation.error/unreadable-code))))
+
+(defn- complete-response [state dependencies value]
+  (try
+    (let [offer (get-in state [:app/invitation :invitation/payload])
+          result (invitation/complete-exchange dependencies offer
+                                                (invitation-code value))]
+      (if-let [peer (:ok result)]
+        (join-requested state
+                        {:peer/id (:peer/id peer)
+                         :peer/nickname (:peer/nickname peer)
+                         :peer/public-key (:peer/public-key peer)})
+        (failed state (:error result))))
+    (catch dynamic error
+      (failed state :invitation.error/unreadable-response))))
 
 (defn- peer-found [state event]
   (assoc-in state [:app/discovered-peers (:peer/id event)]
@@ -182,6 +233,21 @@
                                 state (:room/admission-mode event))
     :event/share-room (share-room state dependencies)
     :event/back-to-room (assoc state :app/screen :view.screen/room)
+    :event/invitation-draft-changed (assoc state :app/invitation-draft
+                                           (:invitation/text event))
+    :event/scan-invitation (assoc state :app/screen :view.screen/scan-invitation)
+    :event/join-with-invitation (accept-invitation state dependencies
+                                                  (:app/invitation-draft state))
+    :event/qr-detected (accept-invitation state dependencies
+                                         (:invitation/text event))
+    :event/invitation-link-received (accept-invitation
+                                      state dependencies
+                                      (:invitation/text event))
+    :event/complete-join-response (complete-response
+                                    state dependencies
+                                    (:app/invitation-draft state))
+    :event/transport-payload (complete-response
+                               state dependencies (:transport/text event))
     :event/peer-found (peer-found state event)
     :event/peer-lost (peer-lost state event)
     :event/join-requested (join-requested state event)
@@ -208,8 +274,19 @@
               (swap! state transition event dependencies)
               (render! (presentation/view @state dispatch!)))]
       (render! (presentation/view @state dispatch!))
-      (let [unsubscribe (when (:peers/subscribe! dependencies)
-                          (peer-observer/start! dependencies dispatch!))]
+      (when-let [initial (:links/initial dependencies)]
+        (dispatch! {:event/type :event/invitation-link-received
+                    :invitation/text initial}))
+      (let [peer-unsubscribe (when (:peers/subscribe! dependencies)
+                               (peer-observer/start! dependencies dispatch!))
+            link-unsubscribe (when (:links/subscribe! dependencies)
+                               ((:links/subscribe! dependencies)
+                                #(dispatch! {:event/type :event/invitation-link-received
+                                             :invitation/text %})))]
         {:application/dispatch! dispatch!
          :application/state state
-         :application/stop! (or unsubscribe (fn [] nil))}))))
+         :application/stop! (fn []
+                              (when peer-unsubscribe (peer-unsubscribe))
+                              (when link-unsubscribe (link-unsubscribe))
+                              (when (:local/stop! dependencies)
+                                ((:local/stop! dependencies))))}))))

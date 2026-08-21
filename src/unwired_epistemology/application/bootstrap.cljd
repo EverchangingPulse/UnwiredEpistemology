@@ -27,8 +27,10 @@
     (initialize!)
     (render! (loading-view))
     (try
-      (let [identity-ports (await ((:identity/ports! dependencies)))]
-        (runtime/start (merge dependencies identity-ports)))
+      (let [identity-ports (await ((:identity/ports! dependencies)))
+            link-ports (if (:links/ports! dependencies)
+                         (await ((:links/ports! dependencies))) {})]
+        (runtime/start (merge dependencies identity-ports link-ports)))
       (catch dynamic error
         (render! (error-view error))
         {:application/startup-error error}))))

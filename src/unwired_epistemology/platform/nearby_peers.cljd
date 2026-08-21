@@ -1,0 +1,107 @@
+(ns unwired-epistemology.platform.nearby-peers
+  (:require ["dart:convert" :as convert]
+            ["package:nearby_connections/nearby_connections.dart" :as nearby]
+            ["package:permission_handler/permission_handler.dart" :as permission]))
+
+(def service-id "app.unwiredepistemology.rooms")
+(def listeners (atom #{}))
+(def sequences (atom {}))
+(def endpoint-names (atom {}))
+(def join-payload (atom nil))
+(def local-name (atom "Anonymous participant"))
+(def nearby-client (nearby/Nearby))
+
+(defn- emit! [peer-id event]
+  (let [sequence-number (inc (get @sequences peer-id -1))
+        message-id (str peer-id "-" sequence-number "-"
+                        (.-millisecondsSinceEpoch (DateTime/now)))
+        complete (merge {:message/id message-id
+                         :message/sequence sequence-number
+                         :peer/id peer-id}
+                        event)]
+    (swap! sequences assoc peer-id sequence-number)
+    (doseq [listener @listeners] (listener complete))))
+
+(defn ^:async ensure-permissions! []
+  (await (.request permission/Permission.location))
+  (await (.request permission/Permission.bluetoothAdvertise))
+  (await (.request permission/Permission.bluetoothConnect))
+  (await (.request permission/Permission.bluetoothScan))
+  (await (.request permission/Permission.nearbyWifiDevices)))
+
+(defn- receive-payload! [endpoint-id payload]
+  (when-let [bytes (.-bytes payload)]
+    (emit! endpoint-id
+           {:event/type :event/transport-payload
+            :transport/type :transport/nearby
+            :transport/text (convert/utf8.decode bytes)})))
+
+(defn- accept-connection! [endpoint-id]
+  (.acceptConnection nearby-client endpoint-id
+                     .onPayLoadRecieved
+                     (fn [source-id payload]
+                       (receive-payload! source-id payload))
+                     .onPayloadTransferUpdate (fn [_ _] nil)))
+
+(defn- connection-initiated! [endpoint-id info]
+  (swap! endpoint-names assoc endpoint-id (.-endpointName info))
+  (emit! endpoint-id
+         {:event/type :event/peer-found
+          :peer/nickname (.-endpointName info)
+          :peer/transports #{:transport/nearby}})
+  (accept-connection! endpoint-id))
+
+(defn- disconnected! [endpoint-id]
+  (emit! endpoint-id {:event/type :event/peer-lost}))
+
+(defn- connected! [endpoint-id status]
+  (when (and (= status nearby/Status.CONNECTED) @join-payload)
+    (.sendBytesPayload nearby-client endpoint-id
+                       (convert/utf8.encode @join-payload))))
+
+(defn ^:async start-host! [nickname]
+  (reset! local-name nickname)
+  (await (ensure-permissions!))
+  (await (.startAdvertising
+           nearby-client nickname nearby/Strategy.P2P_CLUSTER
+           .onConnectionInitiated connection-initiated!
+           .onConnectionResult connected!
+           .onDisconnected disconnected!
+           .serviceId service-id)))
+
+(defn- endpoint-found! [endpoint-id nickname _]
+  (swap! endpoint-names assoc endpoint-id nickname)
+  (emit! endpoint-id
+         {:event/type :event/peer-found
+          :peer/nickname nickname
+          :peer/transports #{:transport/nearby}})
+  (.requestConnection
+    nearby-client @local-name endpoint-id
+    .onConnectionInitiated connection-initiated!
+    .onConnectionResult connected!
+    .onDisconnected disconnected!))
+
+(defn ^:async join! [nickname response]
+  (reset! local-name nickname)
+  (reset! join-payload response)
+  (await (ensure-permissions!))
+  (await (.startDiscovery
+           nearby-client nickname nearby/Strategy.P2P_CLUSTER
+           .onEndpointFound endpoint-found!
+           .onEndpointLost disconnected!
+           .serviceId service-id)))
+
+(defn subscribe! [listener]
+  (swap! listeners conj listener)
+  (fn [] (swap! listeners disj listener)))
+
+(defn stop! []
+  (.stopAdvertising nearby-client)
+  (.stopDiscovery nearby-client)
+  (.stopAllEndpoints nearby-client))
+
+(defn ports []
+  {:peers/subscribe! subscribe!
+   :local/start-host! start-host!
+   :local/join! join!
+   :local/stop! stop!})

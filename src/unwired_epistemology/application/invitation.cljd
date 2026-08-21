@@ -13,11 +13,14 @@
      :invitation/text ((:invitation/encode ports) payload)
      :invitation/url ((:invitation/url ports) payload)}))
 
-(defn accept-join-offer [ports encoded now peer-id]
+(defn accept-join-offer [ports encoded now peer]
   (let [offer ((:invitation/decode ports) encoded)]
     (if (invitation/valid-offer? offer now)
-      (let [response (invitation/join-response
-                       offer peer-id
+      (let [peer-id (if (map? peer) (:member/id peer) peer)
+            nickname (if (map? peer) (:member/nickname peer)
+                         "Anonymous participant")
+            response (invitation/join-response
+                       offer peer-id nickname
                        ((:crypto/public-key ports))
                        ((:crypto/nonce ports)))]
         {:ok {:invitation/offer offer
@@ -30,6 +33,7 @@
   (let [response ((:invitation/decode ports) encoded-response)]
     (if (invitation/valid-response? offer response)
       {:ok {:peer/id (:peer/id response)
+            :peer/nickname (:peer/nickname response)
             :peer/public-key (:peer/public-key response)
             :peer/handshake-nonce (:invitation/nonce response)}}
       {:error :invitation.error/response-does-not-match-offer})))

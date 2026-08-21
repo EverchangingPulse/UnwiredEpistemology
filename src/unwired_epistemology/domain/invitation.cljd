@@ -15,14 +15,19 @@
    :invitation/nonce nonce
    :invitation/expires-at expires-at})
 
-(defn join-response [offer peer-id public-key response-nonce]
-  {:invitation/version protocol-version
-   :invitation/kind :invitation.kind/join-response
-   :room/id (:room/id offer)
-   :peer/id peer-id
-   :peer/public-key public-key
-   :invitation/offer-nonce (:invitation/nonce offer)
-   :invitation/nonce response-nonce})
+(defn join-response
+  ([offer peer-id public-key response-nonce]
+   (join-response offer peer-id "Anonymous participant"
+                  public-key response-nonce))
+  ([offer peer-id nickname public-key response-nonce]
+   {:invitation/version protocol-version
+    :invitation/kind :invitation.kind/join-response
+    :room/id (:room/id offer)
+    :peer/id peer-id
+    :peer/nickname nickname
+    :peer/public-key public-key
+    :invitation/offer-nonce (:invitation/nonce offer)
+    :invitation/nonce response-nonce}))
 
 (defn valid-offer? [offer now]
   (and (= protocol-version (:invitation/version offer))
@@ -39,5 +44,6 @@
        (= (:room/id offer) (:room/id response))
        (= (:invitation/nonce offer) (:invitation/offer-nonce response))
        (some? (:peer/id response))
+       (seq (:peer/nickname response))
        (seq (:peer/public-key response))
        (seq (:invitation/nonce response))))

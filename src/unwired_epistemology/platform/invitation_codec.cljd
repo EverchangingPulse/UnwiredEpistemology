@@ -44,6 +44,7 @@
       (apply str [(str (:invitation/version payload)) (get kind->wire kind)
                   (keyword-wire (:room/id payload)) "F"
                   (keyword-wire (:peer/id payload)) "F"
+                  (hex-encode (:peer/nickname payload)) "F"
                   (hex-encode (:peer/public-key payload)) "F"
                   (hex-encode (:invitation/offer-nonce payload)) "F"
                   (hex-encode (:invitation/nonce payload))])
@@ -66,13 +67,14 @@
       {:invitation/version version :invitation/kind kind
        :room/id (wire-keyword (nth fields 0))
        :peer/id (wire-keyword (nth fields 1))
-       :peer/public-key (hex-decode (nth fields 2))
-       :invitation/offer-nonce (hex-decode (nth fields 3))
-       :invitation/nonce (hex-decode (nth fields 4))}
+       :peer/nickname (hex-decode (nth fields 2))
+       :peer/public-key (hex-decode (nth fields 3))
+       :invitation/offer-nonce (hex-decode (nth fields 4))
+       :invitation/nonce (hex-decode (nth fields 5))}
       (throw (Exception. "Unsupported invitation payload")))))
 
 (defn url [payload]
-  (str "https://unwiredepistemology.app/join#" (encode payload)))
+  (str "unwiredepistemology://join/" (encode payload)))
 
 (defn ports []
   (let [random (math/Random.secure)]

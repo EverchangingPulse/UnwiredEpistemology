@@ -4,6 +4,7 @@
             ["package:flutter/services.dart" :as services]
             ["package:qr_flutter/qr_flutter.dart" :as qr]
             ["package:share_plus/share_plus.dart" :as share]
+            ["package:mobile_scanner/mobile_scanner.dart" :as scanner]
             [cljd.flutter :as f]))
 
 (defn initialize! []
@@ -64,12 +65,26 @@
                         nil)
            .child (m/Text "Share invitation link")))])))
 
+(defn- scanner-widget [model dispatch!]
+  (when-let [configuration (:view/scanner model)]
+    (m/SizedBox
+      .height 420.0
+      .child
+      (scanner/MobileScanner
+        .onDetect
+        (fn [capture]
+          (when-let [value (some-> capture .-barcodes first .-rawValue)]
+            (dispatch! {:event/type (:scanner/event-type configuration)
+                        :invitation/text value}))
+          nil)))))
+
 (defn render! [model]
   (let [dispatch! (:view/dispatch! model)
         details (mapv detail-widget (:view/details model))
         inputs (mapv #(input-widget dispatch! %) (:view/inputs model))
         actions (mapv #(action-widget dispatch! %) (:view/actions model))
-        sharing (share-widget model)]
+        sharing (share-widget model)
+        scanning (scanner-widget model dispatch!)]
     (f/run
       (m/MaterialApp
         .title (:view/title model)
@@ -90,4 +105,7 @@
                        (m/SizedBox .height 12.0)
                        (m/Text (:view/status model))
                        (m/SizedBox .height 16.0)]
-                      (concat details (when sharing [sharing]) inputs actions))))))))))
+                      (concat details
+                              (when sharing [sharing])
+                              (when scanning [scanning])
+                              inputs actions))))))))))
