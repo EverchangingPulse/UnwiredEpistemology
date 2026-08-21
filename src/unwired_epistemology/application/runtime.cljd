@@ -407,7 +407,7 @@
           (assoc (initial-state)
                  :app/admission-message "The room rejected this join request.")
           accepted)
-        accepted)))
+        accepted))))
     (catch dynamic error state)))
 
 (defn transition
