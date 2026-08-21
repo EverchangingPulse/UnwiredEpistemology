@@ -44,6 +44,14 @@
 (defn- actor-id [state event]
   (or (:actor/id event) (:app/local-member-id state)))
 
+(defn- queue-question [state question-id]
+  (update-in state [:app/room :room/question-queue]
+             (fn [queue]
+               (->> (conj (or queue []) question-id)
+                    distinct
+                    (sort-by str)
+                    vec))))
+
 (defn- create-room [state dependencies event]
   (let [room-id (str "room-" ((:identity/new-member-id dependencies)))
         creator (:ok (identity/for-room dependencies room-id))
@@ -225,13 +233,15 @@
           (assoc :app/screen :view.screen/question-ready
                  :app/question question)
           (assoc-in [:app/room :room/questions (:question/id question)] question)
-          (update-in [:app/room :room/question-queue] conj (:question/id question)))
+          (queue-question (:question/id question)))
       (failed state (or (:error approved) (:error submitted))))))
 
 (defn- submit-custom-question [state event]
   (let [member-id (actor-id state event)
         electorate (room/active-members (:app/room state))
-        question-id (str "question-" (inc (count (get-in state [:app/room :room/questions]))))
+        question-id (or (:question/id event)
+                        (str "question-" member-id "-"
+                             (.-microsecondsSinceEpoch (DateTime/now))))
         result (questions/submit question-id
                                  (or (:question/text event)
                                      (:app/question-draft state))
@@ -241,7 +251,7 @@
           (assoc :app/screen :view.screen/question-pending
                  :app/question question)
           (assoc-in [:app/room :room/questions (:question/id question)] question)
-          (update-in [:app/room :room/question-queue] conj (:question/id question)))
+          (queue-question (:question/id question)))
       (failed state (:error result)))))
 
 (defn- approve-custom-question [state event]
@@ -417,8 +427,9 @@
 
         :replication/admission-rejected
         (if (= (:app/local-member-id accepted) (:message/target-id message))
-          (assoc (initial-state)
-                 :app/admission-message "The room rejected this join request.")
+          (assoc accepted :app/screen :view.screen/home
+                          :app/admission-message
+                          "The room rejected this join request.")
           accepted)
         accepted))))
     (catch dynamic error state)))
@@ -507,7 +518,8 @@
      :vote/nonce (:app/nonce after)}
 
     :event/submit-custom-question
-    (assoc event :question/text (:app/question-draft before))
+    (assoc event :question/text (:app/question-draft before)
+                 :question/id (get-in after [:app/question :question/id]))
 
     :event/submit-empathy-message
     (assoc event :empathy/text (:app/empathy-draft before)

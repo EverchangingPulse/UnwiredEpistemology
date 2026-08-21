@@ -93,3 +93,18 @@
     (is (= :room.error/not-creator
            (:error (room/set-admission-mode state :someone-else
                                             :admission.mode/moderators))))))
+
+(deftest concurrent-admission-decisions-converge-with-approval-winning
+  (let [pending (requested :admission.mode/creator-only)
+        rejected (:ok (room/decide-join pending :creator :candidate
+                                        :join.decision/reject))
+        approved-after-reject (:ok (room/decide-join
+                                     rejected :creator :candidate
+                                     :join.decision/approve))
+        approved (:ok (room/decide-join pending :creator :candidate
+                                        :join.decision/approve))
+        reject-after-approve (:ok (room/decide-join
+                                    approved :creator :candidate
+                                    :join.decision/reject))]
+    (is (contains? (room/active-members approved-after-reject) :candidate))
+    (is (= approved reject-after-approve))))

@@ -32,6 +32,7 @@
                             (assoc creator :member/status :member.status/active)}
                            {})
            :room/pending-joins {}
+           :room/rejected-joins {}
            :room/removed-member-ids #{}
            :room/audit-log []
            :room/questions {}
@@ -102,10 +103,15 @@
     false))
 
 (defn decide-join [room approver-id member-id decision]
-  (let [request (get-in room [:room/pending-joins member-id])]
+  (let [request (or (get-in room [:room/pending-joins member-id])
+                    (get-in room [:room/rejected-joins member-id]))
+        active? (contains? (active-members room) member-id)]
     (cond
       (not (admission-approver? room approver-id))
       {:error :room.error/not-admission-approver}
+
+      active?
+      {:ok room}
 
       (nil? request)
       {:error :room.error/join-request-not-found}
@@ -116,6 +122,7 @@
       (= :join.decision/reject decision)
       {:ok (-> room
                (update :room/pending-joins dissoc member-id)
+               (assoc-in [:room/rejected-joins member-id] request)
                (audit {:audit/type :audit/join-rejected
                        :member/id member-id
                        :approver/id approver-id}))}
@@ -123,6 +130,7 @@
       :else
       {:ok (-> room
                (update :room/pending-joins dissoc member-id)
+               (update :room/rejected-joins dissoc member-id)
                (assoc-in [:room/members member-id]
                          (-> request
                              (dissoc :join/status)
