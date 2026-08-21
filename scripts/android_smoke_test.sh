@@ -13,6 +13,15 @@ launch_activity="$(${aapt_path} dump badging "${app_apk}" \
 test -n "${launch_activity}"
 
 adb install -r "${app_apk}"
+for permission in \
+  android.permission.CAMERA \
+  android.permission.ACCESS_FINE_LOCATION \
+  android.permission.BLUETOOTH_ADVERTISE \
+  android.permission.BLUETOOTH_CONNECT \
+  android.permission.BLUETOOTH_SCAN \
+  android.permission.NEARBY_WIFI_DEVICES; do
+  adb shell pm grant "${app_id}" "${permission}" 2>/dev/null || true
+done
 adb logcat -c
 adb shell input keyevent KEYCODE_WAKEUP
 adb shell wm dismiss-keyguard
@@ -49,8 +58,8 @@ dump_contains() {
 
 dump_contains /sdcard/window.xml build/window.xml 'P2P Spectrum'
 
-# The first room-mode button is centered in the upper half on the test AVD.
-adb shell input tap 160 230
+# The dynamic room button follows the invitation field and QR action.
+adb shell input tap 160 349
 sleep 2
 dump_contains /sdcard/room-window.xml build/room-window.xml \
   'Choose the first question'
