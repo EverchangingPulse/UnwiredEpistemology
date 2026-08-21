@@ -1,0 +1,8 @@
+(ns unwired-epistemology.application.presentation-test
+  (:require [clojure.test :refer [deftest is]]
+            [unwired-epistemology.application.presentation :as presentation]))
+
+(deftest oversized-direct-invitations-are-not-rendered-as-qr-codes
+  (is (= "short invitation" (presentation/qr-payload "short invitation")))
+  (is (nil? (presentation/qr-payload
+              (apply str (repeat 2301 "x"))))))

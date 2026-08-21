@@ -43,10 +43,13 @@
   (when-let [invitation (:view/share model)]
     (m/Column
       .children
-      [(m/Padding
-         .padding (painting.EdgeInsets/all 16.0)
-         .child (qr/QrImageView .data (:share/qr invitation) .size 260.0))
-       (m/SelectableText (:share/code invitation))
+      (into
+       (if-let [qr-data (:share/qr invitation)]
+         [(m/Padding
+            .padding (painting.EdgeInsets/all 16.0)
+            .child (qr/QrImageView .data qr-data .size 260.0))]
+         [])
+       [(m/SelectableText (:share/code invitation))
        (m/Padding
          .padding (painting.EdgeInsets/only .top 8.0)
          .child
@@ -63,7 +66,7 @@
            .onPressed (fn []
                         (share/Share.share (:share/url invitation))
                         nil)
-           .child (m/Text "Share invitation link")))])))
+           .child (m/Text "Share invitation link")))]))))
 
 (defn- scanner-widget [model dispatch!]
   (when-let [configuration (:view/scanner model)]
@@ -149,8 +152,8 @@
                        (m/SizedBox .height 12.0)
                        (m/Text (:view/status model))
                        (m/SizedBox .height 16.0)]
-                      (concat details
+                      (concat details actions
                               (when sharing [sharing])
                               (when scanning [scanning])
                               (when spectrum [spectrum])
-                              inputs actions))))))))))
+                              inputs))))))))))

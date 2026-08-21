@@ -19,6 +19,13 @@
    :admission.mode/moderators "Creator and moderators"
    :admission.mode/any-member "Any active member"})
 
+(def maximum-qr-characters 2300)
+
+(defn qr-payload [value]
+  (when (and (string? value)
+             (<= (count value) maximum-qr-characters))
+    value))
+
 (defn- action [label event]
   {:action/label label :action/event event})
 
@@ -189,23 +196,34 @@
         :view.screen/share-response
         {:view/heading "Return this response to the room"
          :view/status "The room must approve your request before you join"
-         :view/details ["Share this response with an existing room member."]
+         :view/details (cond->
+                         ["Share this response with an existing room member."]
+                         (nil? (qr-payload
+                                 (get-in state [:app/join-response
+                                                :invitation/response-text])))
+                         (conj "This direct internet response is too large for one QR code. Use Copy or Share instead."))
          :view/share {:share/code (get-in state [:app/join-response
                                                  :invitation/response-text])
                       :share/url (str "unwiredepistemology://response/"
                                       (get-in state [:app/join-response
                                                      :invitation/response-text]))
-                      :share/qr (get-in state [:app/join-response
-                                               :invitation/response-text])}
+                      :share/qr (qr-payload
+                                  (get-in state [:app/join-response
+                                                 :invitation/response-text]))}
          :view/actions [(action "Return home" {:event/type :event/reset})]}
 
         :view.screen/share-room
         {:view/heading "Invite people to this room"
          :view/status "One end-to-end invitation, available in every format"
-         :view/details ["A join request still requires approval after exchange."]
+         :view/details (cond->
+                         ["A join request still requires approval after exchange."]
+                         (nil? (qr-payload
+                                 (get-in state [:app/invitation :invitation/url])))
+                         (conj "This direct internet invitation is too large for one QR code. Use Copy or Share instead."))
          :view/share {:share/code (get-in state [:app/invitation :invitation/text])
                       :share/url (get-in state [:app/invitation :invitation/url])
-                      :share/qr (get-in state [:app/invitation :invitation/url])}
+                      :share/qr (qr-payload
+                                  (get-in state [:app/invitation :invitation/url]))}
          :view/actions [(action "Back to room"
                                 {:event/type :event/back-to-room})]}
 

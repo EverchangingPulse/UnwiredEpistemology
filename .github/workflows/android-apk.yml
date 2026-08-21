@@ -56,6 +56,7 @@ jobs:
           unwired-epistemology.domain.voting-test
           unwired-epistemology.domain.empathy-test
           unwired-epistemology.application.room-test
+          unwired-epistemology.application.presentation-test
           unwired-epistemology.application.identity-test
           unwired-epistemology.application.invitation-test
           unwired-epistemology.application.bootstrap-test
